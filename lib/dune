@@ -1,0 +1,6 @@
+(library
+ (name tern)
+ (public_name ternc)
+ (libraries sedlex)
+ (preprocess
+  (pps ppx_deriving.show sedlex.ppx)))

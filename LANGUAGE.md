@@ -20,6 +20,14 @@ Keywords are `let rec and in fun if then else type of match with true false mod`
 Names are case-sensitive. There are no modules, imports, objects, mutable cells,
 exceptions, floats, or implicit conversions in this version.
 
+Diagnostics use 1-based lines and 0-based Unicode-scalar columns, with exclusive
+end positions and 0-based byte offsets. Tabs count as one column. LF, CRLF, and
+lone CR each end a line; CRLF is one line break. Outside strings/comments,
+whitespace is ASCII space, tab, vertical tab, form feed, or a line break.
+Unterminated string/comment errors point to their opening delimiter (the
+outermost opening delimiter for nested comments). Other lexical errors point
+to the offending character or escape. Malformed UTF-8 is rejected before lexing.
+
 ```tern
 (* A whole file. *)
 let greeting = "Hello, Tern!\n";;
@@ -37,8 +45,8 @@ let () = print_string greeting;;
 
 Integer literals are decimal, without separators, in `[-2147483648, 2147483647]`;
 out-of-range literals are compile-time errors. Unary `-` negates integers.
-Unary negation, `+`, `-`, and `*` wrap modulo 2^32. `/` truncates toward zero; `mod` has the sign
-of the dividend. Division or remainder by zero, and either operation on
+Unary negation, `+`, `-`, and `*` wrap modulo 2^32. `/` truncates toward zero;
+`mod` has the sign of the dividend. Division or remainder by zero, and either operation on
 `-2147483648` and `-1`, are runtime errors. Comparisons are signed.
 
 `+ - * / mod : int -> int -> int`. Comparisons `= <> < <= > >=` all have type
@@ -52,6 +60,14 @@ Other escapes, unescaped control characters, and unterminated strings are lexica
 errors. There is no interpolation, indexing, or Unicode normalization.
 `^ : string -> string -> string` concatenates bytes without inserting spaces.
 `&&` and `||` require booleans and short-circuit left to right.
+
+Lexically, `-` is always a separate token; the lexer accepts unsigned magnitudes
+through `2147483648` so the parser can construct the minimum signed integer.
+The parser must reject that extra magnitude unless it is the direct operand of
+unary minus. Larger magnitudes are lexical errors. Leading decimal zeroes do
+not change the base. Type-variable tokens omit their leading apostrophe in their
+payload but retain it in their source span. Raw C0/C1 control characters and DEL
+are forbidden in strings (the documented escapes remain valid).
 
 ## Bindings, scope, and sequencing
 

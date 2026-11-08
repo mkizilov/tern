@@ -14,7 +14,7 @@
   (ocaml (and (>= 5.1) (< 6.0)))
   dune
   menhir
-  sedlex
+  (sedlex (>= 3.6))
   ppx_deriving
   ppx_expect
   qcheck

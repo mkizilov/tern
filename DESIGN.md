@@ -4,8 +4,9 @@
 
 The compiler is named `ternc`; its inputs are `.tern` files and its eventual
 output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
-contract, example corpus, dependency metadata, and local tooling only. There is
-intentionally no executable stub, lexer, parser, interpreter, or backend yet.
+contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
+the AST, token vocabulary, and lexer; there is no executable stub, parser,
+interpreter, or backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -163,3 +164,52 @@ relative to the checkout instead. Neither workaround accesses outside the
 repository or disables protection. AFT inspection had no Bash diagnostics but
 was partial: Python's language server was unavailable and Dune file types had
 no diagnostic producer. Native tests, not that partial result, are the evidence.
+
+## Implemented AST and lexer (Prompt 2)
+
+The wrapped OCaml library is `Tern` (public Dune library `ternc`). `Ast` uses a
+generic `{ value; span }` wrapper for expressions, patterns, type expressions,
+bindings, match arms, constructor/type declarations, top-level declarations,
+and the program. Identifier references/binders and operators also retain their
+own spans. Literal and operator variants are payloads, not independently
+positionless syntax nodes. Every AST type has `ppx_deriving.show` printers.
+The AST models curried unary lambdas/applications, recursive binding groups,
+conditionals, tuples, matches, sequencing, and parametric variants. No parsing
+or semantic validation is performed by these data types.
+
+`Token.kind` is independent of a future Menhir parser. `Lexer.lex ~file source`
+returns all located tokens including a zero-width EOF, or `Error` containing an
+error kind and span. `Lexer.create` and `Lexer.next` also support incremental
+token consumption; they raise `Lexer.Error` for lexical failures. Input is a
+UTF-8 string and is eagerly validated with OCaml's standard Unicode decoder so
+malformed bytes never escape as an unlocated Sedlex exception. Token recognition
+and string/comment scanning use Sedlex. Sedlex >= 3.6 is required for parallel
+code-point and byte positions. LF is tracked automatically by Sedlex; only lone
+CR needs an explicit `new_line` call. Never increment again for LF/CRLF.
+
+All spans use 1-based lines, 0-based Unicode-scalar columns, exclusive end
+positions, and 0-based byte offsets. Strings span both quotes even though their
+body is scanned in pieces. Nested comment failures point to the outer opener;
+unterminated strings point to their quote; invalid escapes cover the backslash
+and next scalar. Decimal tokens use an `int64` magnitude bounded by `2147483648`,
+with a separate minus token. The future parser must reject a bare extra
+magnitude while allowing `-2147483648`; this avoids whitespace-dependent
+subtraction and OCaml host-integer overflow. AST integer values use `int32`.
+
+`test/` contains `ppx_expect` tests for AST spans/printers, every keyword and
+token kind, maximal munch, multiline/CRLF/lone-CR/tab positions, decoded escapes,
+UTF-8 scalar/byte offsets, nested comments, empty/repeated EOF, long-buffer
+refills, integer edges, lexical errors, and all 15 examples. Corpus tests only
+lex the files; they do not assert parsing, typing, or runtime behavior.
+
+### Prompt 2 verification limitation
+
+Setup was retried and again exited 6: the shell could not resolve `github.com`.
+`scripts/check.sh` was attempted and rejected the absent local toolchain. Native
+compilation, expectation execution, Dune formatting, and opam regeneration have
+not run; authored expectation snapshots are not claimed as observed output.
+The 14 existing Python infrastructure regressions and `git diff --check` passed.
+Selected span fixture arithmetic was independently checked with Python, not by
+executing or reimplementing the lexer. AFT diagnostics were partial because
+`ocamllsp` is absent; call-graph inspection also reported OCaml as unindexed,
+so the local helper call site was checked with indexed text search instead.

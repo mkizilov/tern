@@ -19,10 +19,15 @@ Extend this file with the project's language-specific architecture and verificat
 ## OCaml architecture and local tools
 
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
-  The target compiler is `ternc`. Prompt 1 intentionally has no compiler code.
+  The target compiler is `ternc`. The AST, tokens, and lexer live in `lib/`;
+  parser and later phases are not implemented yet.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
+- All syntax nodes use `Ast.located`. Spans have 1-based lines, 0-based Unicode
+  scalar columns, exclusive ends, and byte offsets. Sedlex already counts LF;
+  explicitly count lone CR only. Lexer minus tokens stay separate from integer
+  magnitudes; preserve the parser contract for `-2147483648`.
 - OCaml 5.5.2 is selected for the project-local `_opam/` switch. Run
   `scripts/setup.sh` for local opam, dependencies, and pinned wasm-tools.
   Preserve the supplied project-local environment. `DESIGN.md` records host

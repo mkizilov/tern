@@ -1,0 +1,8 @@
+(library
+ (name tern_tests)
+ (inline_tests
+  (deps
+   (glob_files ../examples/*.tern)))
+ (libraries ternc)
+ (preprocess
+  (pps ppx_expect)))
