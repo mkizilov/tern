@@ -21,8 +21,8 @@ Extend this file with the project's language-specific architecture and verificat
 
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
   The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
-  source printer, resolved Core AST, and resolver live in `lib/`; typing and later
-  phases are not implemented.
+  source printer, Core/resolver, and HM inference live in `lib/`. `bin/ternc.ml`
+  implements checking; interpretation and WebAssembly phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -42,6 +42,13 @@ Extend this file with the project's language-specific architecture and verificat
 - Keep nonrecursive RHSs in the old scope and pre-bind every recursive group
   before resolving its bodies. Preserve pattern `Core.Let` bindings for HM
   generalization; sequence desugaring must retain a unit pattern, not a wildcard.
+- `Infer.program` consumes Core and returns inferred top-level schemes or a
+  diagnostic. `Ty` uses mutable linked variables, occurs checks with level
+  lowering, and level-based generalization. Never generalize a variable reachable
+  from an outer level or a recursive member before checking its entire group.
+- Run `dune exec ternc -- check file.tern --types` to check and print top-level
+  binding types. `Check.source` is the reusable parse → resolve → infer API.
+  Formatting types must use `Ty.show`/`Ty.show_pair`, not internal variable IDs.
 - Use `Diagnostic.t` for all compiler errors, with a primary span, severity,
   optional secondary labels, and notes. Supply source text to the renderer;
   do not let rendering implicitly read arbitrary filenames. User-facing columns

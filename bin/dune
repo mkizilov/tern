@@ -1,0 +1,4 @@
+(executable
+ (name ternc)
+ (public_name ternc)
+ (libraries ternc))

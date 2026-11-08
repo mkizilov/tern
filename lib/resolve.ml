@@ -150,9 +150,13 @@ let rec expression context environment (source : Ast.expr) : Core.expr =
         let left = expression context environment left in
         let right = expression context environment right in
         (match operator.value with
-        | Ast.And ->
-            Core.If (left, right, node operator.span (Core.Literal (Ast.Bool false)))
-        | Or -> Core.If (left, node operator.span (Core.Literal (Ast.Bool true)), right)
+        | (Ast.And | Ast.Or) as logical ->
+            let yes = node operator.span (Core.Literal (Ast.Bool true)) in
+            let no = node operator.span (Core.Literal (Ast.Bool false)) in
+            (* Keep boolean operand errors on the operand, not a synthetic branch. *)
+            let checked_right = node right.span (Core.If (right, yes, no)) in
+            if logical = Ast.And then Core.If (left, checked_right, no)
+            else Core.If (left, yes, checked_right)
         | operator_value ->
             Core.Primitive (node operator.span (primitive operator_value), [ left; right ]))
     | E_sequence (left, right) ->

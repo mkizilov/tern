@@ -3,8 +3,8 @@
 Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
-to a smaller Core AST. Typing, interpretation, and WebAssembly generation are
-not implemented yet.
+to a smaller Core AST, and Hindley–Milner type inference. Interpretation and
+WebAssembly generation are not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -138,3 +138,42 @@ desugaring checks, and a corpus invariant walk checking globally unique binders,
 properly scoped references, resolved types/constructors, primitive arities, and
 stable resolution after source printing. These expectations remain unexecuted
 here because native OCaml installation is still blocked by shell DNS.
+
+## Type checking
+
+Inside the project-local opam environment:
+
+```sh
+dune exec ternc -- check examples/11_polymorphic_tuples.tern --types
+dune exec ternc -- check examples/15_list_library.tern
+```
+
+The public executable's command is `ternc check file.tern --types`; `dune exec`
+runs it locally without installing the project. `--types` may precede or follow
+the filename. Successful checking is silent
+unless that flag is present; type reports look like `val id : 'a -> 'a`.
+Each top-level bound name is reported in source order, including shadowed names
+and tuple components, but not wildcard/unit bindings, local bindings, the
+prelude, or generated parameters. The whole program must pass before any type
+report is printed. Errors go to stderr (with color only on a terminal) and return
+status 1; usage errors return 2. No program code is executed.
+
+`Check.source ~file source` runs the front-end pipeline and returns inferred
+schemes or a diagnostic. `Infer.program` accepts an already resolved Core program.
+`Ty` supplies mutable-variable unification, an occurs check that lowers escaping
+variables' levels, generalization at let boundaries, and fresh instantiation.
+Recursive groups remain monomorphic internally and generalize only after all
+bodies are checked. There is no value restriction, matching Tern's immutable
+language contract. Constructor signatures, nominal variants, tuple patterns,
+short-circuit conditions, unit sequencing, and built-ins are all type-checked.
+
+Mismatches show expected/actual types at the responsible expression. Variable
+names are normalized to `'a`, `'b`, … independently for each reported scheme,
+and consistently across the expected/actual pair in a diagnostic. Inference
+state is local to a call; failures do not poison later checks.
+
+The native suite adds more than 50 program expectations, low-level type-variable
+tests, the 15-example typing corpus, and a Cram check-command integration test.
+They are authored but remain unexecuted here because the shell cannot download
+the local toolchain. Passing Python infrastructure contracts do not establish
+that OCaml compilation, these snapshots, or the command succeeded.

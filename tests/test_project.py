@@ -313,6 +313,33 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Let of pattern * expr * expr", expressions)
         self.assertNotRegex(expressions, r"\|\s*(Sequence|Unary|Binary)\b")
 
+    def test_inference_covers_every_core_form(self):
+        core = (ROOT / "lib" / "core.ml").read_text()
+        inference = (ROOT / "lib" / "infer.ml").read_text()
+        forms = core.split("and expr_desc =", 1)[1].split("and recursive_binding =", 1)[0]
+        variants = set(re.findall(r"\|\s*(\w+)", forms))
+        expression = inference.split("let rec expression ", 1)[1].split("let constructor_schemes ", 1)[0]
+        handled = set(re.findall(r"\|\s*(?:Core\.)?(\w+)", expression))
+        self.assertLessEqual(variants, handled)
+        ty = (ROOT / "lib" / "ty.ml").read_text()
+        self.assertIn("occurs_and_lower", ty)
+        self.assertIn("owner > level", ty)
+        self.assertIn("Generic id", ty)
+
+    def test_check_cli_and_program_expectations_are_declared(self):
+        executable = (ROOT / "bin" / "dune").read_text()
+        main = (ROOT / "bin" / "ternc.ml").read_text()
+        pipeline = (ROOT / "lib" / "check.ml").read_text()
+        tests = (ROOT / "test" / "infer_tests.ml").read_text()
+        self.assertIn("(public_name ternc)", executable)
+        self.assertIn("Check.source", main)
+        self.assertIn("Infer.format_bindings", main)
+        for phase in ("Parse.program", "Resolve.program", "Infer.program"):
+            self.assertIn(phase, pipeline)
+        self.assertGreaterEqual(len(re.findall(r'let%expect_test "\d\d ', tests)), 30)
+        self.assertIn("%{bin:ternc}", (ROOT / "test" / "dune").read_text())
+        self.assertIn("ternc check polymorphic.tern --types", (ROOT / "test" / "cli.t").read_text())
+
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()
         self.assertEqual(len(rows), 8)

@@ -7,8 +7,8 @@ output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
 contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
 the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
 Prompt 4 adds unified, rendered diagnostics and parser-state messages. Prompt 5
-adds resolution/desugaring into Core. There is no executable stub, type inference,
-interpreter, or backend yet.
+adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
+`ternc check` command. There is no interpreter or WebAssembly backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -450,8 +450,12 @@ so generated binders cannot capture user names.
 
 `left; right` becomes `let () = left in right`, **not** a wildcard let: the unit
 pattern preserves the language's sequencing type constraint. `left && right`
-becomes `if left then right else false`; `left || right` becomes
-`if left then true else right`. Thus runtime evaluation still short-circuits,
+becomes `if left then bool(right) else false`; `left || right` becomes
+`if left then true else bool(right)`, where `bool(value)` is the Core guard
+`if value then true else false`. This guard was added with Prompt 6 so a bad
+right operand is diagnosed as a condition, not as a synthetic result branch.
+It preserves the earlier lowering's values and single evaluation of operands.
+Thus runtime evaluation still short-circuits,
 although both branches' names are checked statically. Other operators become
 located primitive opcodes with one or two operands. Recursive walks explicitly
 resolve callees/conditions/left operands before their siblings, keeping IDs and
@@ -488,3 +492,96 @@ and Git whitespace checks passed. Static coverage is not a substitute for OCaml
 type-checking or semantic execution. AFT could not supply OCaml/Python diagnostics
 because their language servers are unavailable, and call-graph inspection reported
 the new OCaml file unindexed; indexed search was used for helper references.
+
+## Hindley–Milner inference and check command (Prompt 6)
+
+`Ty` implements the eager level-based algorithm described in Oleg Kiselyov's
+[How OCaml type checker works](https://okmij.org/ftp/ML/generalization.html),
+specifically the `sound_eager` approach rather than the more elaborate lazy
+algorithm. Types are arrows, tuples, nominal constructor applications, or
+mutable variable cells. A cell is unbound with an ID/owner level, a link, or a
+quantified generic variable. IDs are local to one inference invocation; user
+diagnostics never expose them.
+
+`repr` follows links with path compression. When linking an unbound variable to
+a type, `occurs_and_lower` rejects cycles and lowers every reachable unbound
+variable to the older ownership level before installing the link. This level
+lowering is essential: variables used through an outer lambda must not become
+polymorphic at an inner let. Structural unification handles arrows, fixed-arity
+tuples, and nominal type-constructor IDs. Generic cells are never unified as
+mutable metavariables; uses instantiate them first.
+
+Let RHSs and pattern constraints are inferred one level deeper. After checking
+them, `generalize` marks only variables whose level exceeds the enclosing level
+as generic, without scanning the whole environment. Pattern-let binders are
+generalized together after all pattern constraints, so polymorphic tuple bindings
+are supported without accidentally quantifying a captured outer variable.
+Lambda and match-pattern binders remain monomorphic. Constructor schemes are
+built from the resolved variant declarations, quantifying their declared type
+parameters (including phantom parameters) and retaining nominal type identity.
+Primitive signatures follow `LANGUAGE.md`: arithmetic/integer comparisons,
+string concatenation, and fixed print built-ins; equality is not polymorphic.
+
+For a recursive group, fresh monomorphic placeholders at the RHS level are
+installed for every member before any body is inferred. Each body is unified
+with its placeholder while the entire group remains monomorphic. Only after
+all bodies pass are members generalized together relative to the outer level.
+This supports ordinary and mutual recursion, but not polymorphic recursion.
+It also preserves captured outer variables when a recursive group is local.
+
+`Infer.program` consumes Core and returns top-level binding schemes plus the
+program body's type, or `Diagnostic.t`. It infers Core's nested top-level let
+spine with a reporting flag; RHSs, lambdas, branches, and matches do not contribute
+local names to the top-level report. Reporting includes each named pattern
+component and recursive member, preserving source order and shadowed entries.
+No partial report escapes on error. Schemes retain mutable nongeneric cells
+where needed, so later constraints are reflected when formatted. Successful
+schemes' generic variables cannot be specialized by later uses.
+
+Applications first constrain the callee to an arrow, then check the argument
+against its parameter type. Operators check operands individually, conditions
+require bool, branches/match arms agree on results, and lowered sequencing's
+unit pattern requires unit. Diagnostics point to the relevant expression or
+pattern rather than only the enclosing declaration. Type errors say `expected
+... but got ...`; occurs failures also explain that a variable would contain
+itself. `Ty.show_pair` shares a single normalization table across both sides so
+related variables retain the same readable name. Printed types use ordinary
+arrow/product/postfix precedence and variables `'a` through `'z`, then `'a1`, etc.
+`Ty.show` starts normalization anew for each reported binding scheme.
+
+`Check.source` composes parsing, resolution, and inference with one diagnostic
+result. The thin `bin/ternc.ml` command supports `check FILE [--types]` via OCaml's
+standard `Arg` module. It reads the source once, writes diagnostics to stderr
+with injected source text, and prints principal binding schemes only after the
+whole pipeline succeeds. No checking mode executes Tern or creates output files.
+Success is status 0, front-end/read errors 1, and argument errors 2. The public
+Dune executable is `ternc`; use `dune exec ternc -- check FILE --types` or install
+it into the local switch. There are no new dependencies.
+
+### Prompt 6 checks and limitations
+
+The native expectation suite contains over 50 small programs covering
+polymorphic identity at two types, higher-order functions, aliases, captured
+variables and level lowering, closed application/conditional generalization,
+tuple lets versus monomorphic tuple parameters/match arms, ordinary/mutual/local
+recursion, nominal variants/lists/options, builtin shadowing, and primitive types.
+Errors include an infinite self-application type, operand/condition/branch/call
+mismatches, bad sequencing, tuple arity, nominal mismatch, constructor-pattern
+constraints, and monomorphic recursive uses. Error helpers also check the exact
+source slice underlined by each diagnostic. Low-level tests inspect level
+lowering, fresh instantiation/sharing, structural occurs checks, naming beyond
+26 variables, and state isolation after failure. Corpus expectations check all
+15 examples; Cram exercises silent checking, `--types`, status codes, stderr,
+and absence of partial stdout on failure.
+
+Setup was retried and still exited 6 resolving `github.com`. The local switch
+is absent; `scripts/check.sh` again rejected the missing toolchain. OCaml/Dune
+builds, the new native expectations, all corpus type checks, Cram CLI execution,
+formatting, and opam regeneration remain **unverified**. Authored snapshots are
+not claimed as actual type-checker output. The 18 standalone infrastructure/
+static-contract tests and Git whitespace checks passed; they verify setup and
+coverage/wiring, not HM semantic execution. AFT lacks `ocamllsp` and reports the
+new OCaml files unindexed for call graphs. It classifies the Cram `.t` fixture
+as Perl, reporting unsupported Perl analysis and tree-sitter parse errors; these
+are not a native Cram runner result. Native Cram validation remains pending.
+No sandbox bypass or alternate remote execution was used.

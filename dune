@@ -9,6 +9,14 @@
   lib/ast.ml
   lib/core.ml
   lib/resolve.ml
+  lib/ty.ml
+  lib/infer.ml
+  lib/check.ml
+  bin/dune
+  bin/ternc.ml
+  test/dune
+  test/infer_tests.ml
+  test/cli.t
   dune-project
   ternc.opam
   .ocamlformat)

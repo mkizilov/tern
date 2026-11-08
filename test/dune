@@ -6,3 +6,6 @@
  (libraries ternc)
  (preprocess
   (pps ppx_expect)))
+
+(cram
+ (deps %{bin:ternc}))

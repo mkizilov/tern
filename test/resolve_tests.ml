@@ -234,8 +234,8 @@ let%expect_test "sequencing retains its unit constraint and booleans short-circu
     {|
     let x#6 = (let () = (print_int#0 1) in (print_string#1 "x"))
     let f#6 = (fun x#7 -> x#7)
-    let a#8 = (if false then (f#6 true) else false)
-    let b#9 = (if true then true else (f#6 false))
+    let a#8 = (if false then (if (f#6 true) then true else false) else false)
+    let b#9 = (if true then true else (if (f#6 false) then true else false))
     |}]
 
 let%expect_test "prelude identities are stable and built-ins can be shadowed" =

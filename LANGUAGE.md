@@ -204,6 +204,13 @@ polymorphic recursion is not supported. Constructor schemes quantify their type
 parameters. Undefined names, arity errors, and incompatible types are compile-time
 errors; no implicit truthiness or numeric/string coercions exist.
 
+The checker reports principal schemes for top-level names with
+`ternc check file.tern --types`. Printed variables are normalized to `'a`, `'b`,
+and so on (then `'a1`, `'b1`, … after 26 variables). Mismatch diagnostics display
+expected and actual types with consistent variable names and point at the
+responsible operand, argument, condition, branch, pattern, or recursive body.
+This command checks the program without executing it.
+
 ```tern
 let id x = x;;              (* 'a -> 'a *)
 let pair = (id 7, id true);; (* int * bool *)
