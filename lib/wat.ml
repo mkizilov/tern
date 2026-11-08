@@ -4,16 +4,20 @@ type context = {
   mutable strings : (string * int) list;
   mutable division : bool;
   mutable remainder : bool;
+  mutable next_label : int;
 }
+
+type join_target = { block : string; parameters : Core.name list }
 
 let variable (name : Core.name) = "$v" ^ string_of_int name.value.id
 
 let indent text =
   String.split_on_char '\n' text |> List.map (( ^ ) "  ") |> String.concat "\n"
 
-let unsupported span feature =
-  Diagnostic.fail span
-    ("the part-1 Wasm backend does not support " ^ feature ^ " yet")
+let label context prefix =
+  let value = "$" ^ prefix ^ string_of_int context.next_label in
+  context.next_label <- context.next_label + 1;
+  value
 
 let atom context = function
   | Anf.Name name -> "(local.get " ^ variable name ^ ")"
@@ -44,7 +48,7 @@ let primitive context (operator : Core.primitive Ast.located) arguments =
   in
   let operation name = "(" ^ name ^ " " ^ String.concat " " integers ^ ")" in
   match operator.value with
-  | Core.Concat -> unsupported operator.span "string concatenation"
+  | Core.Concat -> call "$rt_string_concat" arguments
   | Negate ->
       call "$rt_int" [ "(i32.sub (i32.const 0) " ^ List.hd integers ^ ")" ]
   | Add -> call "$rt_int" [ operation "i32.add" ]
@@ -63,63 +67,226 @@ let primitive context (operator : Core.primitive Ast.located) arguments =
   | Greater -> call "$rt_bool" [ operation "i32.gt_s" ]
   | Greater_equal -> call "$rt_bool" [ operation "i32.ge_s" ]
 
-let rec expression context (source : Closed.expr) =
+let rec forwards (name : Core.name) (source : Closed.expr) =
+  match source.value with
+  | Return (Anf.Name result) -> result.value.id = name.value.id
+  | Let (alias, { value = Closed.Alias (Anf.Name original); _ }, body)
+    when original.value.id = name.value.id ->
+      forwards alias body
+  | _ -> false
+
+let branch condition yes no =
+  "(if (result i64) " ^ condition ^ "\n"
+  ^ indent ("(then\n" ^ indent yes ^ ")\n(else\n" ^ indent no ^ ")")
+  ^ ")"
+
+let allocation context helper fields =
+  let stores =
+    List.mapi
+      (fun index field ->
+        "(drop "
+        ^ call "$rt_field_set"
+            [
+              "(local.get $allocation)";
+              "(i32.const " ^ string_of_int index ^ ")";
+              atom context field;
+            ]
+        ^ ")")
+      fields
+  in
+  "(block (result i64)\n"
+  ^ indent
+      (String.concat "\n"
+         ([
+            "(local.set $allocation "
+            ^ call helper
+                [ "(i32.const " ^ string_of_int (List.length fields) ^ ")" ]
+            ^ ")";
+          ]
+         @ stores
+         @ [ "(local.get $allocation)" ]))
+  ^ ")"
+
+let rec expression context joins tail (source : Closed.expr) =
   match source.value with
   | Return value -> atom context value
+  | Let (name, rhs, body) when tail && forwards name body ->
+      right_hand_side context joins true rhs
   | Let (name, rhs, body) ->
-      let rhs = right_hand_side context rhs in
+      let rhs = right_hand_side context joins false rhs in
       "(local.set " ^ variable name ^ " " ^ rhs ^ ")\n"
-      ^ expression context body
+      ^ expression context joins tail body
   | If (condition, yes, no) ->
       let condition = call "$rt_unbox_bool" [ atom context condition ] in
-      let yes = expression context yes in
-      let no = expression context no in
-      "(if (result i64) " ^ condition ^ "\n"
-      ^ indent ("(then\n" ^ indent yes ^ ")\n(else\n" ^ indent no ^ ")")
-      ^ ")"
-  | Joins _ | Jump _ | Switch _ | Fail _ ->
-      unsupported source.span "pattern matching"
+      let yes = expression context joins tail yes in
+      let no = expression context joins tail no in
+      branch condition yes no
+  | Joins (definitions, body) ->
+      let done_label = label context "joins_done" in
+      let targets =
+        List.map
+          (fun (join : Closed.join) ->
+            ( join,
+              {
+                block = "$join" ^ string_of_int join.value.label.value.id;
+                parameters = join.value.parameters;
+              } ))
+          definitions
+      in
+      let dispatch_joins =
+        List.fold_left
+          (fun joins ((join : Closed.join), target) ->
+            Ids.add join.value.label.value.id target joins)
+          joins targets
+      in
+      let finish body =
+        "(br " ^ done_label ^ " (block (result i64)\n" ^ indent body ^ "))"
+      in
+      let dispatch = finish (expression context dispatch_joins tail body) in
+      let body =
+        List.fold_left
+          (fun body ((join : Closed.join), target) ->
+            "(block " ^ target.block ^ "\n" ^ indent body ^ ")\n"
+            ^ finish (expression context joins tail join.value.action))
+          dispatch targets
+      in
+      "(block " ^ done_label ^ " (result i64)\n" ^ indent body ^ ")"
+  | Jump (name, arguments) ->
+      let target =
+        match Ids.find_opt name.value.id joins with
+        | Some target -> target
+        | None -> Diagnostic.fail source.span "invalid Wasm join target"
+      in
+      (* Stack all arguments before assigning any formal, preserving parallel moves. *)
+      String.concat "\n"
+        (List.map (atom context) arguments
+        @ List.rev_map
+            (fun name -> "(local.set " ^ variable name ^ ")")
+            target.parameters
+        @ [ "(br " ^ target.block ^ ")" ])
+  | Switch (subject, arms, default) ->
+      switch context joins tail subject arms default
+  | Fail _ -> "unreachable"
 
-and right_hand_side context (source : Closed.rhs) =
+and switch context joins tail subject arms default =
+  let fallback = expression context joins tail default in
+  match arms with
+  | (Anf.Tag _, _) :: _ ->
+      let tags =
+        List.map
+          (function
+            | Anf.Tag tag, body -> (tag.Core.id, body) | _ -> assert false)
+          arms
+      in
+      let ordered =
+        List.sort (fun (left, _) (right, _) -> Int.compare left right) tags
+      in
+      let low = fst (List.hd ordered)
+      and high = fst (List.hd (List.rev ordered)) in
+      let discriminant = call "$rt_variant_tag" [ atom context subject ] in
+      if Int64.sub (Int64.of_int high) (Int64.of_int low) <= 4095L then
+        let done_label = label context "switch_done" in
+        let default_label = label context "switch_default" in
+        let targets =
+          List.map (fun (tag, body) -> (tag, label context "case", body)) tags
+        in
+        let names =
+          List.fold_left
+            (fun map (tag, name, _) -> Ids.add tag name map)
+            Ids.empty targets
+        in
+        let table =
+          List.init
+            (high - low + 1)
+            (fun offset ->
+              Option.value
+                (Ids.find_opt (low + offset) names)
+                ~default:default_label)
+        in
+        let dispatch =
+          "(br_table "
+          ^ String.concat " " (table @ [ default_label ])
+          ^ " (i32.sub " ^ discriminant ^ " (i32.const " ^ string_of_int low
+          ^ ")))"
+        in
+        let finish body =
+          "(br " ^ done_label ^ " (block (result i64)\n" ^ indent body ^ "))"
+        in
+        let body =
+          List.fold_left
+            (fun body (_, target, action) ->
+              "(block " ^ target ^ "\n" ^ indent body ^ ")\n"
+              ^ finish (expression context joins tail action))
+            dispatch targets
+        in
+        "(block " ^ done_label ^ " (result i64)\n"
+        ^ indent
+            ("(block " ^ default_label ^ "\n" ^ indent body ^ ")\n"
+           ^ finish fallback)
+        ^ ")"
+      else
+        let rec balanced = function
+          | [] -> fallback
+          | arms ->
+              let middle = List.length arms / 2 in
+              let pivot, action = List.nth arms middle in
+              let left = List.filteri (fun i _ -> i < middle) arms in
+              let right = List.filteri (fun i _ -> i > middle) arms in
+              branch
+                ("(i32.eq " ^ discriminant ^ " (i32.const "
+               ^ string_of_int pivot ^ "))")
+                (expression context joins tail action)
+                (branch
+                   ("(i32.lt_u " ^ discriminant ^ " (i32.const "
+                  ^ string_of_int pivot ^ "))")
+                   (balanced left) (balanced right))
+        in
+        balanced ordered
+  | _ ->
+      List.fold_right
+        (fun (key, body) fallback ->
+          let literal =
+            match key with Anf.Constant literal -> literal | _ -> assert false
+          in
+          let left = atom context subject
+          and right = atom context (Anf.Literal literal) in
+          let condition =
+            match literal with
+            | Ast.String _ ->
+                call "$rt_unbox_bool"
+                  [ call "$rt_string_equal" [ left; right ] ]
+            | _ -> "(i64.eq " ^ left ^ " " ^ right ^ ")"
+          in
+          branch condition (expression context joins tail body) fallback)
+        arms fallback
+
+and right_hand_side context joins tail (source : Closed.rhs) =
   let value = atom context in
   match source.value with
   | Alias atom -> value atom
   | Direct_call (index, environment, argument) ->
-      call ("$fn" ^ string_of_int index) [ value environment; value argument ]
-  | Closure_call _ -> unsupported source.span "indirect closure calls"
+      "("
+      ^ (if tail then "return_call" else "call")
+      ^ " $fn" ^ string_of_int index ^ " " ^ value environment ^ " "
+      ^ value argument ^ ")"
+  | Closure_call (callee, argument) ->
+      "("
+      ^ (if tail then "return_call_indirect" else "call_indirect")
+      ^ " (type $tern_function) "
+      ^ call "$rt_closure_environment" [ value callee ]
+      ^ " " ^ value argument ^ " "
+      ^ call "$rt_closure_code" [ value callee ]
+      ^ ")"
   | Primitive (operator, arguments) -> primitive context operator arguments
   | Builtin_apply (Core.Print_int, argument) ->
       call "$rt_print_int" [ value argument ]
   | Builtin_apply (Print_string, argument) ->
       call "$rt_print_string" [ value argument ]
   | Block body ->
-      "(block (result i64)\n" ^ indent (expression context body) ^ ")"
-  | Environment fields ->
-      let stores =
-        List.mapi
-          (fun index field ->
-            "(drop "
-            ^ call "$rt_field_set"
-                [
-                  "(local.get $allocation)";
-                  "(i32.const " ^ string_of_int index ^ ")";
-                  value field;
-                ]
-            ^ ")")
-          fields
-      in
       "(block (result i64)\n"
-      ^ indent
-          (String.concat "\n"
-             ([
-                "(local.set $allocation "
-                ^ call "$rt_environment"
-                    [ "(i32.const " ^ string_of_int (List.length fields) ^ ")" ]
-                ^ ")";
-              ]
-             @ stores
-             @ [ "(local.get $allocation)" ]))
+      ^ indent (expression context joins tail body)
       ^ ")"
+  | Environment fields -> allocation context "$rt_environment" fields
   | Allocate_environment count ->
       call "$rt_environment" [ "(i32.const " ^ string_of_int count ^ ")" ]
   | Environment_get (environment, index) ->
@@ -137,8 +304,17 @@ and right_hand_side context (source : Closed.rhs) =
         [ "(i32.const " ^ string_of_int index ^ ")"; value environment ]
   | Closure_environment closure ->
       call "$rt_closure_environment" [ value closure ]
-  | Tuple _ | Field _ -> unsupported source.span "tuples"
-  | Variant _ | Payload _ -> unsupported source.span "variants"
+  | Tuple fields -> allocation context "$rt_tuple" fields
+  | Field (subject, index) ->
+      call "$rt_field_get"
+        [ value subject; "(i32.const " ^ string_of_int index ^ ")" ]
+  | Variant (tag, None) ->
+      call "$rt_variant_nullary"
+        [ "(i32.const " ^ string_of_int tag.value.id ^ ")" ]
+  | Variant (tag, Some payload) ->
+      call "$rt_variant"
+        [ "(i32.const " ^ string_of_int tag.value.id ^ ")"; value payload ]
+  | Payload subject -> call "$rt_variant_payload" [ value subject ]
 
 let rec locals (source : Closed.expr) =
   match source.value with
@@ -148,6 +324,14 @@ let rec locals (source : Closed.expr) =
       in
       (name :: inner) @ locals body
   | If (_, yes, no) -> locals yes @ locals no
+  | Joins (joins, body) ->
+      List.concat_map
+        (fun (join : Closed.join) ->
+          join.value.parameters @ locals join.value.action)
+        joins
+      @ locals body
+  | Switch (_, arms, default) ->
+      List.concat_map (fun (_, body) -> locals body) arms @ locals default
   | _ -> []
 
 let source_names (program : Closed.program) =
@@ -165,6 +349,12 @@ let source_names (program : Closed.program) =
     | If (_, yes, no) ->
         scan yes;
         scan no
+    | Joins (joins, body) ->
+        List.iter (fun (join : Closed.join) -> scan join.value.action) joins;
+        scan body
+    | Switch (_, arms, default) ->
+        List.iter (fun (_, body) -> scan body) arms;
+        scan default
     | _ -> ()
   in
   scan program.value.body;
@@ -212,13 +402,15 @@ let literal (text, index) =
 
 let program (program : Closed.program) =
   try
-    let context = { strings = []; division = false; remainder = false } in
+    let context =
+      { strings = []; division = false; remainder = false; next_label = 0 }
+    in
     let source_name = source_names program in
     let functions =
       List.map
         (fun (definition : Closed.function_definition) ->
           let f = definition.value in
-          let body = expression context f.body in
+          let body = expression context Ids.empty true f.body in
           let declarations = declarations (locals f.body) in
           let name = source_name f.name in
           Printf.sprintf
@@ -232,7 +424,7 @@ let program (program : Closed.program) =
             (indent ("(local $allocation i64)\n" ^ declarations ^ "\n" ^ body)))
         program.value.functions
     in
-    let body = expression context program.value.body in
+    let body = expression context Ids.empty false program.value.body in
     let initialization =
       List.map
         (fun ((name : Core.name), index) ->
@@ -265,11 +457,24 @@ let program (program : Closed.program) =
         [ checked_arithmetic "checked_remainder" "i32.rem_s" ]
       else []
     in
+    let table =
+      "(table $functions "
+      ^ string_of_int (List.length program.value.functions)
+      ^ " funcref)\n" ^ "(elem (i32.const 0) "
+      ^ String.concat " "
+          (List.map
+             (fun (f : Closed.function_definition) ->
+               "$fn" ^ string_of_int f.value.index)
+             program.value.functions)
+      ^ ")"
+    in
     let runtime = String.trim Runtime_assets.wat in
     Ok
       (String.sub runtime 0 (String.length runtime - 1)
       ^ "\n"
       ^ String.concat "\n\n"
-          (arithmetic @ List.map literal context.strings @ functions @ [ entry ])
+          ([ table ] @ arithmetic
+          @ List.map literal context.strings
+          @ functions @ [ entry ])
       ^ "\n)\n")
   with Diagnostic.Raised diagnostic -> Error diagnostic

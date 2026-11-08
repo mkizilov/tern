@@ -1,7 +1,7 @@
-The supported corpus is compiled, validated, executed, and compared byte-for-byte.
+The entire corpus is compiled, validated, executed, and compared byte-for-byte.
 
   $ count=0
-  $ for source in ../examples/01_*.tern ../examples/02_*.tern ../examples/03_*.tern ../examples/05_*.tern ../examples/06_*.tern ../examples/07_*.tern ../examples/08_*.tern; do
+  $ for source in ../examples/*.tern; do
   >   ternc build "$source" -o compiled.wasm || exit 1
   >   wasm-tools validate compiled.wasm || exit 1
   >   node ../runtime/run.mjs compiled.wasm > built.out || exit 1
@@ -10,9 +10,9 @@ The supported corpus is compiled, validated, executed, and compared byte-for-byt
   >   cmp built.out run.out || exit 1
   >   count=$((count + 1))
   > done
-  $ test "$count" -eq 7
+  $ test "$count" -eq 15
   $ printf '%s compiled example outputs match golden bytes\n' "$count"
-  7 compiled example outputs match golden bytes
+  15 compiled example outputs match golden bytes
 
 Embedded runtime and runner assets work from a directory with no repository assets.
 
@@ -30,7 +30,7 @@ Embedded runtime and runner assets work from a directory with no repository asse
   $ cmp ../../examples/01_hello.tern 'input file.tern'
   $ cd ..
 
-Neither a front-end error nor an unsupported feature replaces existing output.
+Neither a type error nor a parse error replaces existing output.
 
   $ printf sentinel > protected.wasm
   $ printf 'let bad = 1 + true;;\n' > invalid.tern
@@ -39,7 +39,8 @@ Neither a front-end error nor an unsupported feature replaces existing output.
   $ test ! -s invalid.out
   $ printf sentinel > expected
   $ cmp expected protected.wasm
-  $ ternc build ../examples/11_polymorphic_tuples.tern -o protected.wasm > unsupported.out 2> unsupported.err
+  $ printf 'let value = if true then 1;;\n' > syntax.tern
+  $ ternc build syntax.tern -o protected.wasm > unsupported.out 2> unsupported.err
   [1]
   $ test ! -s unsupported.out
   $ cmp expected protected.wasm
@@ -90,3 +91,35 @@ Build requires an explicit output filename.
   $ ternc build ../examples/01_hello.tern > usage.out 2> usage.err
   [2]
   $ test ! -s usage.out
+
+Ten million tail calls run in bounded heap memory without growing the Wasm stack.
+
+  $ cat > deep.tern <<'TERN'
+  > let rec loop n = if n = 0 then 42 else loop (n - 1);;
+  > let () = print_int (loop 10000000); print_string "\n";;
+  > TERN
+  $ ternc build deep.tern -o deep.wasm
+  $ node --input-type=module - deep.wasm <<'JS'
+  > import assert from 'node:assert/strict';
+  > import { readFileSync } from 'node:fs';
+  > import { instantiate } from '../runtime/run.mjs';
+  > const instance = await instantiate(readFileSync(process.argv[2]));
+  > instance.exports._start();
+  > assert.ok(instance.exports.rt_heap_top() < 65536);
+  > console.log('10,000,000 tail calls completed; heap below one page');
+  > JS
+  42
+  10,000,000 tail calls completed; heap below one page
+
+Non-exhaustive matching fails at runtime without losing preceding output.
+
+  $ cat > missing.tern <<'TERN'
+  > type option = None | Some of int;;
+  > let get x = match x with Some n -> n;;
+  > let () = print_string "before"; print_int (get None);;
+  > TERN
+  $ ternc run missing.tern > missing.out 2> missing.err
+  [1]
+  $ printf before > expected
+  $ cmp expected missing.out
+  $ test -s missing.err

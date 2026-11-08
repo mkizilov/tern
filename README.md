@@ -6,8 +6,8 @@ Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
 warnings. AST and ANF interpreters, ANF lowering, and decision-tree match
 compilation and closure conversion are implemented. A hand-written Wasm runtime
-and Node host are available. Part-1 WebAssembly generation supports numeric and
-boolean control flow, direct calls, and printing; remaining features are pending.
+and Node host are available. WebAssembly generation supports the full language,
+including heap values, matching, higher-order calls, and Wasm tail calls.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -339,7 +339,7 @@ The runtime by itself intentionally has no `_start`. Runtime-unit tests use
 explicit handwritten WAT fixtures; separate backend tests now compile and run
 the supported Tern corpus listed below.
 
-## Build and run Wasm (part 1)
+## Build and run Wasm
 
 ```sh
 dune exec ternc -- build examples/07_factorial.tern -o factorial.wasm
@@ -358,15 +358,26 @@ its WAT runtime and host source and does not depend on the launch directory.
 
 The backend preserves all signed int32 values, wrapping arithmetic, signed
 comparisons, booleans/short-circuiting, `if` block values, `let`, unit sequencing,
-direct/recursive calls, integer printing, and UTF-8 string-literal printing.
+tuples, variants, nested matches, lexical closures, higher-order/recursive calls,
+byte strings and concatenation, and exact integer/string printing.
 Readable WAT is available through the reusable `Wat.program`/`Wasm_build.emit`
 APIs, including comments naming source functions. Build keeps no implicit WAT
 sidecar; temporary WAT and execution files are cleaned.
 
-Examples **01, 02, 03, 05, 06, 07, and 08** compile, validate, run, and match their
-`.out` bytes under both the public build/Node path and default run. Indirect
-closure calls, tuples/projections, variants, matching, and string concatenation
-receive explicit located part-1 diagnostics. Compiler-generated environments and
-closure records are supported to implement direct calls, but that is not yet
-general higher-order application support. Native/runtime failures preserve prior
-stdout; Node currently reports traps without Tern source-location mapping.
+All **15 examples** compile, validate, run, and match their `.out` bytes under
+both the public build/Node path and default run. A typed function table supports
+indirect closure calls; known callees remain direct. Match matrices become tag
+dispatch and field reads with shared structured case joins. Literal string cases
+use byte equality, and runtime concatenation does not alter either input.
+
+Calls in actual tail position use `return_call` or `return_call_indirect`.
+Forwarding lets and branch/match result blocks preserve tail position; arithmetic
+or other work after a call does not. The test suite runs 10 million tail calls
+without stack overflow and with linear memory below one page, plus separate
+indirect and case-join tail tests. Use a Node engine supporting Wasm tail calls;
+the verified host is Node 26.13.0.
+
+The bump allocator still has no collector: tail calls bound stack use, not heap
+allocation. Curried calls that construct intermediate closures, tuples, variants,
+or strings may exhaust the documented 64 MiB cap. Native/runtime failures preserve
+prior stdout; Node currently reports traps without Tern source-location mapping.

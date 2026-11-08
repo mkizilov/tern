@@ -24,8 +24,8 @@ Extend this file with the project's language-specific architecture and verificat
   source printer, Core/resolver, HM inference, and typed match coverage live in
   `lib/`, alongside AST/ANF interpreters, ANF lowering, and closure conversion.
   `bin/ternc.ml` implements checking, `dump-ir`, and `run --interp`/`run --ir`;
-  the hand-written linear-memory runtime is in `runtime/`. The part-1 WAT backend
-  supports numeric/boolean control flow, direct calls, and printing.
+  the hand-written linear-memory runtime is in `runtime/`. The WAT backend
+  supports the full language and Wasm direct/indirect tail calls.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -114,15 +114,21 @@ Extend this file with the project's language-specific architecture and verificat
 - `runtime/runtime.test.mjs` assembles/validates WAT with pinned wasm-tools and
   executes it in Node under `dune test`. Keep its scratch paths local and Node/
   Rayon concurrency bounded to two. Runtime tests are not a compiler backend.
-- `Wat.program` emits readable WAT from Closed using embedded runtime assets;
-  it returns a located diagnostic for unsupported IR, never dummy code. The
-  current backend rejects indirect calls, tuples, variants, matches, and concat.
+- `Wat.program` emits readable WAT from Closed using embedded runtime assets.
+  Tables preserve Closed indices; closures use the uniform `$tern_function` ABI.
+  Tail position propagates through forwarding aliases and control blocks, never
+  through calls with a remaining continuation.
+- Match joins are structured blocks with parallel formal assignments. Dense tag
+  switches use `br_table`; wide sparse tags use bounded balanced dispatch. Read
+  payloads only in their selected constructor branch. Join actions do not recurse
+  or jump to siblings; this is the case-join invariant produced by lowering.
 - `Wasm_build` assembles then validates before atomic output publication. All
   WAT, host-script, log, and run binaries are scoped scratch and cleaned. `run`
   defaults to compile + Node; `--interp`/`--ir` retain semantic-reference modes.
 - Use `dune exec ternc -- build file.tern -o file.wasm` and
-  `dune exec ternc -- run file.tern`. The part-1 CLI corpus is examples 01, 02,
-  03, 05, 06, 07, and 08; all still have exact-byte interpreter/IR checks too.
+  `dune exec ternc -- run file.tern`. All 15 examples must match `.out` when
+  compiled, as well as under the interpreter/IR references. The native CLI suite
+  includes a 10,000,000-step tail loop with a one-page heap bound.
 
 ## Verification commands and tests
 

@@ -450,7 +450,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Ir_interp.closed ~write (Closure_convert.program", " ".join(main.split()))
         self.assertIn("AST = ANF = closed IR = golden bytes", tests)
 
-    def test_part_one_backend_embeds_runtime_and_uses_checked_i32_operations(self):
+    def test_backend_embeds_runtime_and_uses_checked_i32_operations(self):
         dune = (ROOT / "lib" / "dune").read_text()
         backend = (ROOT / "lib" / "wat.ml").read_text()
         self.assertIn("(target runtime_assets.ml)", dune)
@@ -460,7 +460,19 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("i32.rem_s", backend)
         self.assertIn("-2147483648", backend)
         self.assertIn("memory.init", backend)
-        self.assertIn('unsupported source.span "indirect closure calls"', backend)
+        self.assertIn('"call_indirect"', backend)
+
+    def test_full_backend_has_tables_tail_calls_and_complete_compiled_corpus(self):
+        backend = (ROOT / "lib" / "wat.ml").read_text()
+        cli = (ROOT / "test" / "wasm_cli.t").read_text()
+        self.assertIn('"return_call_indirect"', backend)
+        self.assertIn('"return_call"', backend)
+        self.assertIn('"(br_table "', backend)
+        self.assertIn('"(table $functions "', backend)
+        self.assertIn("forwards name body", backend)
+        self.assertIn("10000000", cli)
+        self.assertIn("rt_heap_top() < 65536", cli)
+        self.assertIn('test "$count" -eq 15', cli)
 
     def test_build_driver_validates_before_atomic_publish_and_cleans_workspace(self):
         driver = (ROOT / "lib" / "wasm_build.ml").read_text()
@@ -474,7 +486,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Runtime_assets.host", driver)
         self.assertIn("Wasm_build.run checked", main)
         self.assertIn("validation-rejected", cli)
-        self.assertIn('test "$count" -eq 7', cli)
+        self.assertIn('test "$count" -eq 15', cli)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

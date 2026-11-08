@@ -14,7 +14,8 @@ Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
 `dump-ir`/`run --ir`. Prompt 10 adds explicit closure conversion and converted
 execution. Prompt 11 adds the hand-written WAT memory runtime and Node host.
 Prompt 12 adds part-1 WAT emission, assembly/validation, build, and compiled run.
-General higher-order/data/match emission is not implemented yet.
+Prompt 13 completes heap/data/match/indirect-call emission and Wasm tail calls.
+The runtime remains bump-only; a collector is not implemented.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -1298,3 +1299,94 @@ division/remainder operand cases fail without stdout, and the partial-output cas
 retains its prefix. The Node runtime suite also verifies symlinked invocation and
 library import from stdin. AFT still has no authoritative OCaml/JS diagnostics
 in this workspace; the real build, validator, and execution results are the gate.
+
+## Complete Wasm emission and tail calls (Prompt 13)
+
+The backend now covers every executable Closed form. Tuples allocate runtime
+blocks and initialize atomic fields left-to-right, using the same allocation
+scratch local as environments. Field/payload reads use checked runtime helpers.
+Nullary and payload variants carry their nominal constructor identity; payload
+tuples remain separate tuple values. Concat calls `rt_string_concat`; string
+patterns use byte equality. No source pointer identity or new mutation is added.
+
+### Function table and calls
+
+A single funcref table has one element for every dense Closed code index, in
+the same order, including builtin/constructor wrappers. Element N is `$fnN`,
+independent of that function's physical module index. Every entry has the
+`$tern_function` type `(i64 environment, i64 argument) -> i64`. Normal higher-order
+calls load the record's environment and code index and use typed `call_indirect`.
+Known targets still name the module function directly. A source function value
+is never a hidden host closure.
+
+### Structured decision trees and shared joins
+
+IR joins are emitted once as nested void-labelled blocks inside an i64-result
+block. Dispatch exits the selected label, executes its action, then branches
+with the result to the shared exit. Lowering's case actions are independent:
+they cannot recursively jump to a sibling action. Their nested matches introduce
+their own local labels; outer label maps remain lexically scoped. Every formal
+argument is first pushed on the operand stack and only then are formals assigned
+in reverse order, preserving parallel moves and evaluation order. Local gathering
+includes all join parameters/actions and every switch branch.
+
+Constructor switches with a tag span at most 4096 entries use `br_table` over
+named arm blocks, with holes and out-of-range tags going to the default. Payload
+projections remain inside the matching arm, after the tag decision. Wider sparse
+spans use a balanced unsigned tag decision tree rather than a giant jump table.
+This avoids code size proportional to arbitrary constructor-ID gaps. Open literal
+switches use equality decisions at the selected matrix column: canonical i64
+equality for int/bool/unit and runtime byte equality for strings. Subject effects
+were already sequenced once by ANF; these tests only read the resulting atom.
+No full source-pattern chain is reconstructed. Empty matrices trap, preserving
+the warning/runtime-failure distinction and already emitted stdout.
+
+### Tail position and stack behavior
+
+The emitter propagates a tail-position bit through function results, `if` arms,
+match actions, and control blocks. An administrative `let result = rhs in result`
+or a chain of pure forwarding aliases emits its RHS directly in tail position.
+It does not mark a call tail when arithmetic, allocation, or another continuation
+still needs its result. A direct tail call uses `return_call`; an unknown target
+uses `return_call_indirect` with the same table/type and explicit environment.
+Both instructions replace the current Wasm frame, including through selected
+match actions. The void `_start` entry does not misuse an i64-result tail call;
+its user-function calls follow the ordinary entry/drop convention.
+
+No new general optimizer, uncurrying pass, loop rewrite, or GC is added. The
+required stress case is a unary countdown with no per-iteration heap allocation.
+Tail calls guarantee bounded stack, not bounded allocations: general curried
+applications can still allocate partial closures, and data/string-producing
+loops can reach the bump allocator's 64 MiB cap. Non-tail recursion retains its
+continuation and can still reach an engine stack limit. Node must support Wasm
+tail-call instructions; the verified read-only host does.
+
+### Verification and observed stress result
+
+The public CLI test compiles, validates, and runs all 15 examples, comparing
+every output with its `.out` and default compiled run. Focused native expectations
+cover indirect/curried calls, captured and case-returned closures, nested tuples
+and constructors, wildcard/bound fallbacks, correlated matrix columns, string
+switches/UTF-8 concat, left-to-right effects and single subject evaluation, early
+wildcard priority, and sparse constructor spans (5001 constructors without a huge
+jump table). Earlier arithmetic/atomic-output tests remain, while obsolete
+unsupported-feature expectations became positive execution cases rather than
+being removed. A non-exhaustive-match CLI regression checks failure and retained
+stdout. Tests inspect direct/indirect tail opcodes and non-tail calls, run 100,000
+indirect tail steps and 100,000 tail steps through case joins, and run the required
+10,000,000-step countdown with heap top below 65536.
+
+An additional actual stress run on Node 26.13.0 returned `42\n` after 10,000,000
+tail steps in **0.083357917 seconds** of `_start` execution (assembly/instantiation
+excluded). Linear memory remained **65,536 bytes**, heap top was **4,192**
+(96 allocated bytes above the 4096 base), and the measured ending process RSS
+was **14,207,016 bytes**. RSS is not a peak measurement, and one observed run is
+not a speed guarantee. Temporary stress source/binary files were removed; no
+large dataset, server, global tool install, or host service was used.
+
+Final gate: `scripts/check.sh` passes native build, all phase/Cram tests, the
+expanded 21 backend expectations, all 16 runtime tests, 28 infrastructure/static
+contracts, and formatting. All 15 compiled outputs match their goldens and the
+10-million-call regression completes without overflow. AFT still lacks ocamllsp
+and treats Cram as Perl; real compilation, Wasm validation, and Node execution
+are authoritative. Runtime traps still have no Tern source-location mapping.
