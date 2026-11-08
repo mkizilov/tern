@@ -12,7 +12,8 @@ adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
 Prompt 8 adds the checked-Core reference interpreter and `run --interp` command.
 Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
 `dump-ir`/`run --ir`. Prompt 10 adds explicit closure conversion and converted
-execution. There is no WebAssembly backend yet.
+execution. Prompt 11 adds the hand-written WAT memory runtime and Node host.
+There is no compiler WebAssembly emitter yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -67,8 +68,8 @@ program. Keep phases independently testable and free of CLI I/O.
    hold captured values. Recursive groups need shared environments initialized
    before any function can be invoked. Curried functions and partial applications
    keep their semantics. Representation details remain internal.
-9. **WAT emission:** choose layouts for tuples, strings, variants, and closures
-   in linear memory. Use `i32` for integers, checked allocation, and indirect calls
+9. **WAT emission:** use the runtime layouts for tuples, strings, variants, and closures
+    in linear memory. Use `i32` integer arithmetic with tagged i64 values, checked allocation, and indirect calls
    for closures. A checked bump allocator is a reasonable first runtime;
    reclamation is not part of Prompt 1. Document the ABI before implementing it.
    Map division traps and match failures to the runtime error contract. Expose
@@ -78,7 +79,7 @@ program. Keep phases independently testable and free of CLI I/O.
     then `wasm-tools validate output.wasm`. Check process status, retain useful
     diagnostics, and clean intermediate files. `wasm-tools` is an assembler and
     validator, **not a WebAssembly execution engine**. Select/test a runner in
-    the backend task; no runtime execution is claimed now.
+    the backend task. Runtime/host execution is now tested independently of emission.
 
 ## Planned layout and dependencies
 
@@ -1011,3 +1012,186 @@ homepage/bug reports) is incomplete; the later MIT/publication task owns that
 work. AFT still lacks ocamllsp and does not index these call graphs; native OCaml
 builds/tests are the authority. No outer sandbox boundary was bypassed, no host
 service was contacted, and no global tools/settings were changed.
+
+## Linear-memory representation and runtime ABI (Prompt 11)
+
+`runtime/runtime.wat` is hand-written, assembled with the pinned wasm-tools,
+validated, and executed in Node. It is a complete runtime module for standalone
+helper tests and a body of named `$rt_*` definitions for later backend composition.
+It has no source entry point, generated program, start section, collector, or
+function table of its own. Tests that add an entry/table are explicitly handwritten
+fixtures. Compiler emission remains the next phase, not part of this task.
+
+### Uniform values: unboxed tagged i64
+
+An i32 has exactly 2^32 bit patterns, already all required by Tern's full signed
+int32 domain. It cannot also encode booleans, unit, and pointers without boxing
+some integers or narrowing their range. The selected scheme uses **one i64 per
+value**, keeping integers/booleans unboxed and all heap references uniform.
+This trades wider fields/registers for simple monomorphic closure signatures,
+full integer semantics, and an unambiguous pointer tag for a future collector.
+
+| Low 3 bits | Meaning | Encoding |
+| --- | --- | --- |
+| `000` | Heap block | Zero-extended aligned memory32 address; zero is invalid |
+| `001` | Integer | `(sign_extend_i32(n) << 3) | 1` |
+| `010` | Boolean | False = `2`, true = `10` |
+| `011` | Unit | Exactly `3` |
+| `100`–`111` | Reserved | Not produced |
+
+Integer decoding is arithmetic right shift by 3 then `i32.wrap_i64`; the public
+unbox helper verifies canonical encoding by re-encoding the result. Boolean
+unboxing accepts only 2/10. `rt_int` and `rt_bool` construct values; `rt_unit` is
+an exported immutable i64 global. The full -2147483648..2147483647 range fits
+without allocation. Backend integer operations must unbox, perform wrapping i32
+arithmetic, then rebox. Booleans must be unboxed before control flow (encoded
+false is nonzero). Division/remainder trap rules remain those in LANGUAGE.md;
+in particular a future emitter must also reject the min-int/-1 remainder pair,
+which raw `i32.rem_s` would not trap on.
+
+All compiled unary code has type `$tern_function`: `(environment: i64,
+argument: i64) -> i64`. The environment value is a pointer to an environment
+block, not an OCaml/JavaScript lexical map. Closure dispatch loads the i32 table
+index, supplies the environment and argument, and uses this exact indirect-call
+type. Known direct calls supply the same explicit environment. File entry
+`_start` takes no arguments and has no observable return; no implicit output is
+added. No Wasm `(start ...)` section is used, so memory exports exist before
+source output begins.
+
+### Heap blocks and headers
+
+Every block is 8-byte aligned and values point to its **header**, not its payload.
+All multi-byte words are little-endian. Blocks start at address 4096; the initial
+4 KiB is reserved, not managed or scanned by the allocator. The current runtime
+starts with one 64 KiB page and caps memory at 1024 pages (64 MiB).
+
+| Offset | Width | Meaning |
+| --- | --- | --- |
+| `+0` | i32 | `(payload_bytes << 8) | (gc_bits << 6) | kind` |
+| `+4` | i32 | Auxiliary constructor tag or function-table index; otherwise zero |
+| `+8` | `payload_bytes` | Typed payload |
+| After payload | 0–7 bytes | Zero alignment padding, not fields/data |
+
+Kind uses bits 0..5; bits 6..7 are reserved GC flags, initially zero. Size is an
+unsigned 24-bit **byte** count, excluding the 8-byte header and padding. Thus a
+single payload is at most 16,777,215 bytes. Physical footprint is
+`align_up(8 + payload_bytes, 8)`. The auxiliary word is not a tagged value and is
+never scanned as a pointer. GC flag bits do not change kind/size inspection.
+
+| Kind | Block | Payload bytes | Auxiliary word | Payload fields |
+| --- | --- | --- | --- | --- |
+| 1 | Tuple | `arity * 8`, arity >= 2 | 0 | Tagged i64 values |
+| 2 | Variant | 0 or 8 | Constructor identity | Optional single tagged payload |
+| 3 | Closure | 8 | Function-table index | Tagged environment pointer |
+| 4 | String | Exact byte length | 0 | Immutable byte sequence, no terminator |
+| 5 | Environment | `field_count * 8`, possibly zero | 0 | Tagged captured/peer values |
+
+Multi-field constructor payloads remain tuple values in one variant slot,
+matching Core/Closed. Nullary variants are heap blocks too. Constructor identity
+is separate from block kind and from function-table index. A closure is logically
+the pair `(code index, environment fields)`, with a separate environment block
+allowing recursive members to share it. Environment allocation initializes slots
+to unit, then the converted program creates peer records and writes all slots
+before invocation. Tuple slots are likewise unit until filled. This is
+compiler-internal initialization, not source-visible mutation. There is no new
+value restriction or source reference feature.
+
+### Checked bump allocation and helpers
+
+`rt_alloc(kind: i32, payload_bytes: i32, aux: i32) -> i32` is the low-level
+allocator, returning a raw memory32 pointer. It validates kind/size, rounds safely,
+checks unsigned address overflow and the memory cap, and grows whole pages as
+needed. It commits the bump pointer/header only after successful growth and
+zeroes payload/padding. Allocation failure traps without advancing the heap, so
+a smaller allocation can still succeed. It never frees or reuses a block.
+`rt_heap_top() -> i32` is a read-only test/debug query, not an exposed mutable
+global. The maximum is an implementation resource limit, not a narrower int range.
+
+The source-oriented helpers use tagged i64 values (`v` below):
+
+| Helper | Signature / result |
+| --- | --- |
+| `rt_tuple`, `rt_environment` | `(i32 count) -> v` |
+| `rt_field_get` | `(v block, i32 index) -> v` |
+| `rt_field_set` | `(v tuple_or_environment, i32 index, v field) -> unit` |
+| `rt_variant_nullary` | `(i32 constructor) -> v` |
+| `rt_variant` | `(i32 constructor, v payload) -> v` |
+| `rt_variant_tag`, `rt_variant_payload` | `(v variant) -> i32` / `v` |
+| `rt_closure` | `(i32 code_index, v environment) -> v` |
+| `rt_closure_code`, `rt_closure_environment` | `(v closure) -> i32` / `v` |
+| `rt_string` | `(i32 byte_length) -> v`, initially zero bytes |
+| `rt_string_data`, `rt_string_length` | `(v string) -> i32 address` / `i32 byte_length` |
+| `rt_string_concat`, `rt_string_equal` | `(v left, v right) -> v string` / `v bool` |
+| `rt_print_int`, `rt_print_string` | `(v value) -> unit` |
+| `rt_pointer`, `rt_kind`, `rt_size` | `(v block) -> i32 pointer` / `kind` / `payload_bytes` |
+
+Field access checks supported kinds, aligned word size, and unsigned indices;
+negative/out-of-range indices trap. Variant writes are not admitted by the generic
+setter. Variant payload and closure environment reads check their expected size
+and kind. Pointer checks reject noncanonical/high-bit/tagged/misaligned/null,
+out-of-heap, and truncated blocks. These checks are not a block-authentication
+bitmap: arbitrary malicious Wasm can write its own memory and forge headers.
+Trusted generated code must use allocation results and correct field layouts;
+this runtime is not a security boundary between mutually hostile Wasm functions.
+
+Strings preserve raw bytes, including embedded NUL; there is no terminator,
+Unicode normalization, or runtime UTF-8 re-encoding. Source lexing establishes
+valid text; byte-oriented helpers do not discard malformed bytes supplied by a
+test/foreign caller. Concat checks combined size through allocation, then copies
+both inputs without mutation. Equality is byte equality for literal matching,
+not a new polymorphic source equality operator. Literal initialization can copy
+raw bytes into a fresh string's data region before publishing it. Allocation
+growth does not invalidate numeric pointers, only cached host memory views.
+
+### Host imports and runner
+
+The only imports are `tern.print_int(i32 signed)` and
+`tern.print_string(i32 address, i32 byte_length)`, both returning nothing. WAT
+printing helpers unbox/check their arguments and return encoded unit afterward.
+`runtime/run.mjs` instantiates a binary with these imports, requires exported
+`memory`, then calls `_start` for its CLI mode. Its exported `instantiate` helper
+also supports a standalone runtime without an entry for tests.
+
+Node writes signed decimal ASCII or exact copied bytes synchronously, without
+newlines, and handles partial stdout writes. String imports treat pointer/length
+as unsigned i32, check the memory range, and fetch `memory.buffer` afresh on every
+call, so `memory.grow` cannot leave a stale/detached host view. Copies prevent a
+later memory write from changing an already captured output chunk. No TextDecoder,
+WASI, filesystem import, or service socket is provided to the module. CLI usage
+errors return 2; instantiation/export/range/trap/I/O errors return 1 with a message
+on stderr, preserving previously written stdout. Located compiler runtime error
+mapping is not implemented by this host-only step.
+
+### Collector boundary and verification
+
+There is deliberately **no collector**. Objects live until the instance is
+discarded. Central allocation, reserved header GC bits, fixed sizes/kinds,
+zero padding, canonical pointer tags, and explicit environment/field setters
+leave a clear later insertion point. A collector must add root discovery or a
+shadow stack for live Wasm locals/arguments, trace tuples/environments/variant
+payloads/closure environments, skip string bytes and auxiliary words, handle
+cycles, and introduce any required barriers. Header bits alone do not make GC
+safe; no root stack, collection trigger, moving pointers, or write barrier is
+pretended to exist now.
+
+`runtime/runtime.test.mjs` runs 16 real-Wasm tests via Node 22+ without npm
+dependencies. Each runtime/fixture is assembled and validated with project-local
+wasm-tools. Tests cover integer extremes/tag rejection, header flags, initialized
+fields and bounds, variant layouts, recursive closure cycles, typed table calls,
+strings/concat/equality, memory growth, byte-exact printing, allocation failures
+and heap consistency under the 64 MiB cap, invalid pointers, and the real host
+CLI's output/error/export/range contracts. Tests use project-local temporary
+directories and clean them; Node and wasm-tools/Rayon workers are bounded to two.
+They are invoked by `runtime/dune` as part of `dune test`. Existing OCaml phase
+and 15-example AST/IR tests remain required. No claim is made that a Tern example
+has been compiled to Wasm in this turn; only explicit handwritten fixtures are
+used for Wasm entry/table integration. Wasm emission and garbage collection are
+still out of scope.
+
+Verification for this turn: all 16 runtime tests passed on the read-only Node
+26.13.0 host with wasm-tools 1.263.0. `scripts/check.sh` passed native build,
+the existing OCaml/CLI suites, the new Dune runtime rule, and formatting.
+`node --check` passed for both `.mjs` files. AFT cannot supply JS diagnostics
+without a JS workspace marker and has no WAT diagnostic producer; actual Node
+execution and Wasm assembly/validation are the authority. No package or global
+tool was installed, and no server/watch process was started.

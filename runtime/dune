@@ -1,0 +1,5 @@
+(rule
+ (alias runtest)
+ (deps runtime.wat run.mjs runtime.test.mjs)
+ (action
+  (run node --test --test-concurrency=2 %{dep:runtime.test.mjs})))

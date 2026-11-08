@@ -5,8 +5,8 @@ compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
 warnings. AST and ANF interpreters, ANF lowering, and decision-tree match
-compilation and closure conversion are implemented; WebAssembly generation is
-not implemented yet.
+compilation and closure conversion are implemented. A hand-written Wasm runtime
+and Node host are available; compiler WebAssembly generation is not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -304,3 +304,36 @@ Native expectations include nested and recursive converted IR, closed-scope and
 call-kind checks, recursive/escaping/higher-order behavior, and AST/ANF/converted
 output comparisons for all 15 goldens. These executions now pass in the verified
 project-local switch.
+
+## Linear-memory runtime and Node host
+
+`runtime/runtime.wat` is a standalone hand-written runtime module. It provides
+tagged values, checked bump allocation, tuple/variant/environment/closure fields,
+byte strings, and host printing. The full ABI is specified in `DESIGN.md`.
+Uniform values are **i64**, not truncated 31-bit integers: all signed int32 values
+remain unboxed and preserve Tern's existing semantics. There is no collector yet.
+
+Run all checks with `scripts/check.sh`. To run only the runtime tests:
+
+```sh
+PATH="$PWD/.tools/bin:$PATH" node --test --test-concurrency=2 runtime/runtime.test.mjs
+```
+
+Node.js 22+ is a read-only host prerequisite; the verified host uses Node 26.
+Tests assemble and validate WAT using project-local wasm-tools, execute helpers
+and hand-written entry fixtures, and clean their temporary files. They run as
+part of `dune test` alongside the OCaml and existing CLI suites.
+
+The host runner's public command is:
+
+```sh
+node runtime/run.mjs FILE.wasm
+```
+
+A module must export `memory` and a callable `_start`; its imports are
+`tern.print_int(i32)` and `tern.print_string(i32 pointer, i32 byte_length)`.
+Output is raw bytes with no implicit newline. Failures return status 1 and
+diagnostics on stderr, preserving prior stdout; argument errors return 2.
+The runtime by itself intentionally has no `_start`. This turn does not add
+`ternc` Wasm emission: runner tests use explicitly hand-written WAT fixtures,
+not falsely claimed compiled output from the Tern example corpus.

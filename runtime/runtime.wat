@@ -1,0 +1,206 @@
+(module
+  (import "tern" "print_int" (func $host_print_int (param i32)))
+  (import "tern" "print_string" (func $host_print_string (param i32 i32)))
+  (type $tern_function (func (param i64 i64) (result i64)))
+  (memory (export "memory") 1 1024)
+  (global $heap (mut i32) (i32.const 4096))
+  (global $unit (export "rt_unit") i64 (i64.const 3))
+
+  (func $rt_heap_top (export "rt_heap_top") (result i32) (global.get $heap))
+
+  (func $rt_int (export "rt_int") (param $value i32) (result i64)
+    (i64.or (i64.shl (i64.extend_i32_s (local.get $value)) (i64.const 3)) (i64.const 1)))
+
+  (func $rt_unbox_int (export "rt_unbox_int") (param $value i64) (result i32)
+    (local $integer i32)
+    (local.set $integer (i32.wrap_i64 (i64.shr_s (local.get $value) (i64.const 3))))
+    (if (i64.ne (call $rt_int (local.get $integer)) (local.get $value)) (then unreachable))
+    (local.get $integer))
+
+  (func $rt_bool (export "rt_bool") (param $value i32) (result i64)
+    (if (i32.gt_u (local.get $value) (i32.const 1)) (then unreachable))
+    (i64.or (i64.shl (i64.extend_i32_u (local.get $value)) (i64.const 3)) (i64.const 2)))
+
+  (func $rt_unbox_bool (export "rt_unbox_bool") (param $value i64) (result i32)
+    (if (i32.and (i64.ne (local.get $value) (i64.const 2))
+                 (i64.ne (local.get $value) (i64.const 10))) (then unreachable))
+    (i32.wrap_i64 (i64.shr_u (local.get $value) (i64.const 3))))
+
+  ;; One header word: payload byte count in bits 8..31, GC bits 6..7, kind in 0..5.
+  ;; The second word is an auxiliary constructor tag / function-table index.
+  (func $rt_alloc (export "rt_alloc") (param $kind i32) (param $bytes i32) (param $aux i32) (result i32)
+    (local $pointer i32) (local $total i32) (local $end i32) (local $capacity i32)
+    (if (i32.or (i32.lt_u (local.get $kind) (i32.const 1))
+                (i32.gt_u (local.get $kind) (i32.const 5))) (then unreachable))
+    (if (i32.gt_u (local.get $bytes) (i32.const 16777215)) (then unreachable))
+    (local.set $total (i32.and (i32.add (local.get $bytes) (i32.const 15)) (i32.const -8)))
+    (local.set $pointer (global.get $heap))
+    (local.set $end (i32.add (local.get $pointer) (local.get $total)))
+    (if (i32.or (i32.lt_u (local.get $end) (local.get $pointer))
+                (i32.gt_u (local.get $end) (i32.const 67108864))) (then unreachable))
+    (local.set $capacity (i32.shl (memory.size) (i32.const 16)))
+    (if (i32.gt_u (local.get $end) (local.get $capacity))
+      (then
+        (if (i32.eq
+              (memory.grow
+                (i32.shr_u
+                  (i32.add (i32.sub (local.get $end) (local.get $capacity)) (i32.const 65535))
+                  (i32.const 16)))
+              (i32.const -1)) (then unreachable))))
+    ;; Commit only after bounds checks and successful growth.
+    (global.set $heap (local.get $end))
+    (i32.store (local.get $pointer)
+      (i32.or (i32.shl (local.get $bytes) (i32.const 8)) (local.get $kind)))
+    (i32.store offset=4 (local.get $pointer) (local.get $aux))
+    (memory.fill (i32.add (local.get $pointer) (i32.const 8)) (i32.const 0)
+      (i32.sub (local.get $total) (i32.const 8)))
+    (local.get $pointer))
+
+  (func $rt_words (param $kind i32) (param $count i32) (param $aux i32) (result i32)
+    (local $pointer i32) (local $index i32)
+    (if (i32.gt_u (local.get $count) (i32.const 2097151)) (then unreachable))
+    (local.set $pointer (call $rt_alloc (local.get $kind)
+      (i32.shl (local.get $count) (i32.const 3)) (local.get $aux)))
+    (block $done (loop $initialize
+      (br_if $done (i32.ge_u (local.get $index) (local.get $count)))
+      (i64.store (i32.add (i32.add (local.get $pointer) (i32.const 8))
+                  (i32.shl (local.get $index) (i32.const 3))) (global.get $unit))
+      (local.set $index (i32.add (local.get $index) (i32.const 1)))
+      (br $initialize)))
+    (local.get $pointer))
+
+  (func $rt_pointer (export "rt_pointer") (param $value i64) (result i32)
+    (local $pointer i32) (local $header i32) (local $kind i32)
+    (local.set $pointer (i32.wrap_i64 (local.get $value)))
+    (if (i64.ne (i64.extend_i32_u (local.get $pointer)) (local.get $value)) (then unreachable))
+    (if (i32.or (i32.ne (i32.and (local.get $pointer) (i32.const 7)) (i32.const 0))
+                (i32.lt_u (local.get $pointer) (i32.const 4096))) (then unreachable))
+    (if (i32.gt_u (local.get $pointer) (i32.sub (global.get $heap) (i32.const 8))) (then unreachable))
+    (local.set $header (i32.load (local.get $pointer)))
+    (local.set $kind (i32.and (local.get $header) (i32.const 63)))
+    (if (i32.or (i32.eqz (local.get $kind)) (i32.gt_u (local.get $kind) (i32.const 5))) (then unreachable))
+    (if (i32.gt_u (i32.shr_u (local.get $header) (i32.const 8))
+          (i32.sub (i32.sub (global.get $heap) (local.get $pointer)) (i32.const 8))) (then unreachable))
+    (local.get $pointer))
+
+  (func $rt_expect (param $value i64) (param $kind i32) (result i32)
+    (local $pointer i32)
+    (local.set $pointer (call $rt_pointer (local.get $value)))
+    (if (i32.ne (i32.and (i32.load (local.get $pointer)) (i32.const 63)) (local.get $kind)) (then unreachable))
+    (local.get $pointer))
+
+  (func $rt_kind (export "rt_kind") (param $value i64) (result i32)
+    (i32.and (i32.load (call $rt_pointer (local.get $value))) (i32.const 63)))
+
+  (func $rt_size (export "rt_size") (param $value i64) (result i32)
+    (i32.shr_u (i32.load (call $rt_pointer (local.get $value))) (i32.const 8)))
+
+  (func $rt_tuple (export "rt_tuple") (param $count i32) (result i64)
+    (if (i32.lt_u (local.get $count) (i32.const 2)) (then unreachable))
+    (i64.extend_i32_u (call $rt_words (i32.const 1) (local.get $count) (i32.const 0))))
+
+  (func $rt_environment (export "rt_environment") (param $count i32) (result i64)
+    (i64.extend_i32_u (call $rt_words (i32.const 5) (local.get $count) (i32.const 0))))
+
+  (func $rt_slot (param $value i64) (param $index i32) (result i32)
+    (local $pointer i32) (local $header i32) (local $kind i32) (local $bytes i32)
+    (local.set $pointer (call $rt_pointer (local.get $value)))
+    (local.set $header (i32.load (local.get $pointer)))
+    (local.set $kind (i32.and (local.get $header) (i32.const 63)))
+    (if (i32.and (i32.and (i32.ne (local.get $kind) (i32.const 1))
+                         (i32.ne (local.get $kind) (i32.const 2)))
+                 (i32.ne (local.get $kind) (i32.const 5))) (then unreachable))
+    (local.set $bytes (i32.shr_u (local.get $header) (i32.const 8)))
+    (if (i32.or (i32.ne (i32.and (local.get $bytes) (i32.const 7)) (i32.const 0))
+                (i32.ge_u (local.get $index) (i32.shr_u (local.get $bytes) (i32.const 3)))) (then unreachable))
+    (i32.add (i32.add (local.get $pointer) (i32.const 8)) (i32.shl (local.get $index) (i32.const 3))))
+
+  (func $rt_field_get (export "rt_field_get") (param $value i64) (param $index i32) (result i64)
+    (i64.load (call $rt_slot (local.get $value) (local.get $index))))
+
+  (func $rt_field_set (export "rt_field_set") (param $value i64) (param $index i32) (param $field i64) (result i64)
+    (local $pointer i32)
+    (local.set $pointer (call $rt_pointer (local.get $value)))
+    (if (i32.eq (i32.and (i32.load (local.get $pointer)) (i32.const 63)) (i32.const 2)) (then unreachable))
+    (i64.store (call $rt_slot (local.get $value) (local.get $index)) (local.get $field))
+    (global.get $unit))
+
+  (func $rt_variant_nullary (export "rt_variant_nullary") (param $tag i32) (result i64)
+    (i64.extend_i32_u (call $rt_alloc (i32.const 2) (i32.const 0) (local.get $tag))))
+
+  (func $rt_variant (export "rt_variant") (param $tag i32) (param $payload i64) (result i64)
+    (local $pointer i32)
+    (local.set $pointer (call $rt_words (i32.const 2) (i32.const 1) (local.get $tag)))
+    (i64.store offset=8 (local.get $pointer) (local.get $payload))
+    (i64.extend_i32_u (local.get $pointer)))
+
+  (func $rt_variant_tag (export "rt_variant_tag") (param $value i64) (result i32)
+    (i32.load offset=4 (call $rt_expect (local.get $value) (i32.const 2))))
+
+  (func $rt_variant_payload (export "rt_variant_payload") (param $value i64) (result i64)
+    (local $pointer i32)
+    (local.set $pointer (call $rt_expect (local.get $value) (i32.const 2)))
+    (if (i32.ne (i32.shr_u (i32.load (local.get $pointer)) (i32.const 8)) (i32.const 8)) (then unreachable))
+    (i64.load offset=8 (local.get $pointer)))
+
+  (func $rt_closure (export "rt_closure") (param $index i32) (param $environment i64) (result i64)
+    (local $pointer i32)
+    (drop (call $rt_expect (local.get $environment) (i32.const 5)))
+    (local.set $pointer (call $rt_words (i32.const 3) (i32.const 1) (local.get $index)))
+    (i64.store offset=8 (local.get $pointer) (local.get $environment))
+    (i64.extend_i32_u (local.get $pointer)))
+
+  (func $rt_closure_code (export "rt_closure_code") (param $value i64) (result i32)
+    (i32.load offset=4 (call $rt_expect (local.get $value) (i32.const 3))))
+
+  (func $rt_closure_environment (export "rt_closure_environment") (param $value i64) (result i64)
+    (local $environment i64) (local $pointer i32)
+    (local.set $pointer (call $rt_expect (local.get $value) (i32.const 3)))
+    (if (i32.ne (i32.shr_u (i32.load (local.get $pointer)) (i32.const 8)) (i32.const 8)) (then unreachable))
+    (local.set $environment (i64.load offset=8 (local.get $pointer)))
+    (drop (call $rt_expect (local.get $environment) (i32.const 5)))
+    (local.get $environment))
+
+  (func $rt_string (export "rt_string") (param $length i32) (result i64)
+    (i64.extend_i32_u (call $rt_alloc (i32.const 4) (local.get $length) (i32.const 0))))
+
+  (func $rt_string_length (export "rt_string_length") (param $value i64) (result i32)
+    (i32.shr_u (i32.load (call $rt_expect (local.get $value) (i32.const 4))) (i32.const 8)))
+
+  (func $rt_string_data (export "rt_string_data") (param $value i64) (result i32)
+    (i32.add (call $rt_expect (local.get $value) (i32.const 4)) (i32.const 8)))
+
+  (func $rt_string_concat (export "rt_string_concat") (param $left i64) (param $right i64) (result i64)
+    (local $left_length i32) (local $right_length i32) (local $result i64)
+    (local.set $left_length (call $rt_string_length (local.get $left)))
+    (local.set $right_length (call $rt_string_length (local.get $right)))
+    (local.set $result (call $rt_string (i32.add (local.get $left_length) (local.get $right_length))))
+    (memory.copy (call $rt_string_data (local.get $result)) (call $rt_string_data (local.get $left)) (local.get $left_length))
+    (memory.copy (i32.add (call $rt_string_data (local.get $result)) (local.get $left_length))
+      (call $rt_string_data (local.get $right)) (local.get $right_length))
+    (local.get $result))
+
+  (func $rt_string_equal (export "rt_string_equal") (param $left i64) (param $right i64) (result i64)
+    (local $length i32) (local $index i32) (local $a i32) (local $b i32)
+    (local.set $length (call $rt_string_length (local.get $left)))
+    (if (i32.ne (local.get $length) (call $rt_string_length (local.get $right)))
+      (then (return (call $rt_bool (i32.const 0)))))
+    (local.set $a (call $rt_string_data (local.get $left)))
+    (local.set $b (call $rt_string_data (local.get $right)))
+    (block $equal (loop $compare
+      (br_if $equal (i32.ge_u (local.get $index) (local.get $length)))
+      (if (i32.ne (i32.load8_u (i32.add (local.get $a) (local.get $index)))
+                   (i32.load8_u (i32.add (local.get $b) (local.get $index))))
+        (then (return (call $rt_bool (i32.const 0)))))
+      (local.set $index (i32.add (local.get $index) (i32.const 1)))
+      (br $compare)))
+    (call $rt_bool (i32.const 1)))
+
+  (func $rt_print_int (export "rt_print_int") (param $value i64) (result i64)
+    (call $host_print_int (call $rt_unbox_int (local.get $value)))
+    (global.get $unit))
+
+  (func $rt_print_string (export "rt_print_string") (param $value i64) (result i64)
+    (call $host_print_string (call $rt_string_data (local.get $value)) (call $rt_string_length (local.get $value)))
+    (global.get $unit))
+)

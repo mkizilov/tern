@@ -24,7 +24,8 @@ Extend this file with the project's language-specific architecture and verificat
   source printer, Core/resolver, HM inference, and typed match coverage live in
   `lib/`, alongside AST/ANF interpreters, ANF lowering, and closure conversion.
   `bin/ternc.ml` implements checking, `dump-ir`, and `run --interp`/`run --ir`;
-  WebAssembly phases are not implemented.
+  the hand-written linear-memory runtime is in `runtime/`; compiler Wasm emission
+  is not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -103,6 +104,16 @@ Extend this file with the project's language-specific architecture and verificat
 - Declare dependencies in `dune-project`; regenerate and commit `ternc.opam`.
   Do not hand-maintain divergent dependency lists. Do not commit toolchains,
   caches, build outputs, or temporary test fixtures.
+- `runtime/runtime.wat` defines the memory/value ABI in `DESIGN.md`: tagged i64
+  values preserve all int32s, 8-byte-aligned blocks have tag/size headers, and
+  closures use a table index plus an environment pointer. Do not shrink int32
+  range or introduce source-visible mutation when implementing the backend.
+- `runtime/run.mjs` provides only `tern.print_int` and byte-exact
+  `tern.print_string`, then calls an exported `_start`. Use a read-only Node.js
+  22+ host tool; no npm dependencies are required. No Wasm start section is used.
+- `runtime/runtime.test.mjs` assembles/validates WAT with pinned wasm-tools and
+  executes it in Node under `dune test`. Keep its scratch paths local and Node/
+  Rayon concurrency bounded to two. Runtime tests are not a compiler backend.
 
 ## Verification commands and tests
 
