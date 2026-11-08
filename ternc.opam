@@ -7,7 +7,7 @@ description:
 depends: [
   "ocaml" {>= "5.1" & < "6.0"}
   "dune" {>= "3.20"}
-  "menhir"
+  "menhir" {>= "20180523"}
   "menhirLib"
   "uucp"
   "sedlex" {>= "3.6"}
@@ -33,3 +33,4 @@ build: [
     "@doc" {with-doc}
   ]
 ]
+x-maintenance-intent: ["(latest)"]

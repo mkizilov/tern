@@ -5,7 +5,8 @@ compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
 warnings. AST and ANF interpreters, ANF lowering, and decision-tree match
-compilation are implemented; WebAssembly generation is not implemented yet.
+compilation and closure conversion are implemented; WebAssembly generation is
+not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -19,10 +20,16 @@ scripts/setup.sh
 scripts/check.sh
 ```
 
-Setup installs pinned local opam, OCaml 5.5.2 in `_opam/`, declared Dune
+Setup installs pinned local opam, OCaml 5.4.1 in `_opam/`, declared Dune
 dependencies, and pinned wasm-tools in `.tools/bin`. It does not install globally
 or change shell profiles. See `DESIGN.md` for prerequisites, environment rules,
-and the shell DNS limitation that prevented installation during initial setup.
+and the repaired setup limitations recorded during initial development. On the
+supplied macOS toolchain, scripts select its existing read-only SDK only when
+SDKROOT is unset. Supplied paths and toolchain settings are preserved.
+
+**Verified in turn 10:** local setup, `scripts/check.sh` (native build, all tests,
+and formatting), all phase expectations and Cram suites, and AST/ANF/converted
+execution of all 15 exact-output examples. Earlier DNS failures are historical.
 
 Offline infrastructure checks (Python 3 standard library only):
 
@@ -45,9 +52,8 @@ Spans use 1-based lines, 0-based Unicode-scalar columns, exclusive ends, and
 
 Run the AST/lexer `ppx_expect` suite with `dune test -j 2` in the local switch
 (or `scripts/check.sh` for all checks). The suite includes every token kind,
-positions, errors, and lexical acceptance of all 15 examples; it does not yet
-parse, type-check, or execute them. Turn 2 native checks remain blocked by the
-same shell DNS/toolchain limitation documented in `DESIGN.md`.
+positions, errors, and lexical acceptance of all 15 examples. Later phase suites
+also parse, check, and execute the corpus. These native suites now pass.
 
 ## Parser and source printer
 
@@ -67,8 +73,8 @@ spans. Direct `Ast.equal_span` still compares actual source positions.
 
 The parser expectation suite parses all 15 examples, prints/reparses each, and
 asserts span-free AST equality and stable printed output. It also tests syntax
-errors, integer edges, precedence, and the nested-match ambiguity. These new
-OCaml tests remain unexecuted here: native setup is still blocked by shell DNS.
+errors, integer edges, precedence, and the nested-match ambiguity. They pass in
+the verified local switch.
 
 ## Diagnostics
 
@@ -104,7 +110,7 @@ Parser errors use `lib/grammar.messages`, compiled into a state/message lookup
 by Dune with `menhir --compile-errors`. The incremental table backend requires
 `menhirLib`. Ten syntax-error snapshots plus renderer/lexer regression cases are
 in `test/diagnostic_tests.ml`. Native message compilation, snapshots, and color
-emission remain unverified while toolchain installation is blocked by shell DNS.
+emission regression tests pass.
 
 ## Name resolution and Core
 
@@ -137,8 +143,7 @@ shadowed. The value and type namespaces are separate.
 `test/resolve_tests.ml` contains identity/scope goldens, rendered error cases,
 desugaring checks, and a corpus invariant walk checking globally unique binders,
 properly scoped references, resolved types/constructors, primitive arities, and
-stable resolution after source printing. These expectations remain unexecuted
-here because native OCaml installation is still blocked by shell DNS.
+stable resolution after source printing. These expectations now pass natively.
 
 ## Type checking
 
@@ -179,9 +184,7 @@ state is local to a call; failures do not poison later checks.
 
 The native suite adds more than 50 program expectations, low-level type-variable
 tests, the 15-example typing corpus, and a Cram check-command integration test.
-They are authored but remain unexecuted here because the shell cannot download
-the local toolchain. Passing Python infrastructure contracts do not establish
-that OCaml compilation, these snapshots, or the command succeeded.
+They now pass natively, independently of the Python infrastructure contracts.
 
 ## Exhaustiveness and unreachable cases
 
@@ -202,8 +205,8 @@ that recursively defined types without finite inhabitants are empty.
 
 `test/coverage_tests.ml` adds nested/partial/redundant pattern expectations,
 parametric variant tests, list/option library checks, and a finite-product
-usefulness/witness property. The new warnings, native tests, and CLI integration
-remain unverified here because toolchain installation is still blocked by DNS.
+usefulness/witness property. The warnings, native tests, and CLI integration
+have passed in the local switch.
 
 ## Reference interpreter
 
@@ -235,11 +238,10 @@ Failed matches return located diagnostics, not invented values. Output streams
 as execution proceeds and survives later failure. The CLI flushes source output
 before emitting runtime diagnostics on stderr.
 
-This is the semantic reference for the future Wasm backend. The native suite now
+This is the semantic reference for the future Wasm backend. The native suite
 includes a 15-file library loop comparing `.out` bytes, a real-command corpus
-loop under `dune test`, and semantic/runtime-error expectations. Those executions
-remain **unverified here**: shell DNS still prevents local OCaml installation.
-The passing Python infrastructure tests check wiring, not interpreter results.
+loop under `dune test`, and semantic/runtime-error expectations. All have now
+passed. Python infrastructure tests separately check wiring and setup contracts.
 
 ## A-normal IR
 
@@ -251,8 +253,8 @@ dune exec ternc -- run --ir examples/15_list_library.tern
 `Lower.program checked` produces a located `Anf.program`. Every operation result
 is named; functions and primitives consume atoms, not nested expressions.
 Conditional/match blocks return atoms to one named result, so their continuation
-is not duplicated. Lexical closures remain explicit functions for the later
-closure-conversion phase.
+is not duplicated. Lexical closures remain explicit nested functions until the
+closure-conversion pass described below.
 
 Matches compile from a prioritized pattern matrix to multiway tag/literal
 switches and projections. Payloads are read only inside their constructor-tag
@@ -261,7 +263,7 @@ parameters; leaves jump to it, retaining first-match priority and avoiding
 duplicate bodies/binder IDs. No Core pattern nodes survive in executable IR.
 
 `Ir_pretty.program` renders the IR without executing the source.
-`Ir_interp.program ~write ir` walks ANF directly, including join parameters,
+`Ir_interp.program ~write ir` walks unconverted ANF directly, including join parameters,
 switch tables, field reads, and recursive functions. It shares `Runtime` values,
 Int32 traps, and byte output with the AST reference, not the AST evaluator itself.
 `Core.program.next_id` reserves fresh IDs above every source/prelude binder.
@@ -269,5 +271,36 @@ Int32 traps, and byte output with the AST reference, not the AST evaluator itsel
 The native tests compare all 15 AST outputs, IR outputs, and `.out` files exactly.
 Focused tests cover safe projections, default/bound fallbacks, nested patterns,
 column selection, effect ordering, closure capture, and matching error spans.
-These native/differential results remain unverified while the local toolchain
-cannot be downloaded; only the documented offline contracts/models have run.
+These native/differential checks now pass, including the original ANF walker.
+
+## Closure-converted IR
+
+```sh
+dune exec ternc -- dump-ir --closed examples/09_closures.tern
+dune exec ternc -- run --ir examples/15_list_library.tern
+```
+
+`Closure_convert.program anf` computes function free variables and lifts all
+function code into a top-level table. A closure is explicitly a function-table
+index plus an environment record. Function entries take that environment and
+their unary argument, loading captures by field index. Builtins and payload
+constructors have closed wrappers, so all source-callable values use the same
+record format.
+
+Recursive groups allocate one shared environment, make every member closure,
+fill captured and peer/self slots, then enter the continuation. This permits
+escaping mutually recursive closures while keeping independent invocation state.
+Known function literals, recursive members, builtins/constructors, and aliases
+use direct calls to constant table indices with explicit environments. Unknown
+higher-order parameters remain closure calls; the pass does not guess their code.
+
+`run --ir` now executes this converted representation through `Ir_interp.closed`.
+`Ir_interp.program` retains the earlier ANF walker for comparisons. Converted
+function calls start with no caller/global lexical map, only their environment
+and argument. `Closed_pretty.program` and `dump-ir --closed` expose the table,
+capture loads, environment initialization, and direct/indirect call distinction.
+
+Native expectations include nested and recursive converted IR, closed-scope and
+call-kind checks, recursive/escaping/higher-order behavior, and AST/ANF/converted
+output comparisons for all 15 goldens. These executions now pass in the verified
+project-local switch.

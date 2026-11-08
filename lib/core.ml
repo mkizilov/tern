@@ -1,8 +1,7 @@
 type symbol = { id : int; spelling : string }
 [@@deriving show { with_path = false }, eq]
 
-type name = symbol Ast.located
-[@@deriving show { with_path = false }, eq]
+type name = symbol Ast.located [@@deriving show { with_path = false }, eq]
 
 type builtin = Print_int | Print_string
 [@@deriving show { with_path = false }, eq]
@@ -52,9 +51,7 @@ and expr_desc =
   | Primitive of primitive Ast.located * expr list
 
 and recursive_binding = recursive_binding_desc Ast.located
-
 and recursive_binding_desc = { recursive_name : name; recursive_body : expr }
-
 and case = case_desc Ast.located
 
 and case_desc = { case_pattern : pattern; case_body : expr }

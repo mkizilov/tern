@@ -1,24 +1,27 @@
 open Runtime
 
 let rec bind environment (pattern : Core.pattern) value =
-  match pattern.value, value with
+  match (pattern.value, value) with
   | Core.Wildcard, _ -> Some environment
   | Bind name, value -> Some (Ids.add name.value.id value environment)
-  | Literal_pattern literal, value when equal_literal literal value -> Some environment
-  | Tuple_pattern patterns, Tuple values when List.length patterns = List.length values ->
+  | Literal_pattern literal, value when equal_literal literal value ->
+      Some environment
+  | Tuple_pattern patterns, Tuple values
+    when List.length patterns = List.length values ->
       bind_fields environment patterns values
-  | Constructor_pattern (name, payload), Variant (tag, value) when name.value.id = tag.id ->
-      (match payload, value with
+  | Constructor_pattern (name, payload), Variant (tag, value)
+    when name.value.id = tag.id -> (
+      match (payload, value) with
       | None, None -> Some environment
       | Some pattern, Some value -> bind environment pattern value
       | _ -> None)
   | _ -> None
 
 and bind_fields environment patterns values =
-  match patterns, values with
+  match (patterns, values) with
   | [], [] -> Some environment
-  | pattern :: patterns, value :: values ->
-      (match bind environment pattern value with
+  | pattern :: patterns, value :: values -> (
+      match bind environment pattern value with
       | None -> None
       | Some environment -> bind_fields environment patterns values)
   | _ -> assert false
@@ -35,9 +38,9 @@ let rec evaluate context environment (source : Core.expr) =
       let callee = evaluate context environment callee in
       let argument = evaluate context environment argument in
       Runtime.apply context source.span ~call:(evaluate context) callee argument
-  | Let (pattern, rhs, body) ->
+  | Let (pattern, rhs, body) -> (
       let value = evaluate context environment rhs in
-      (match bind environment pattern value with
+      match bind environment pattern value with
       | Some environment -> evaluate context environment body
       | None -> Diagnostic.fail pattern.span "pattern binding failed")
   | Let_rec (bindings, body) ->
@@ -57,8 +60,8 @@ let rec evaluate context environment (source : Core.expr) =
       (* The whole group is tied before any closure body can run. *)
       shared := recursive_environment;
       evaluate context recursive_environment body
-  | If (condition, yes, no) ->
-      (match evaluate context environment condition with
+  | If (condition, yes, no) -> (
+      match evaluate context environment condition with
       | Boolean true -> evaluate context environment yes
       | Boolean false -> evaluate context environment no
       | _ -> assert false)
@@ -79,8 +82,8 @@ and evaluate_fields context environment = function
 
 and cases_value context environment span value = function
   | [] -> Diagnostic.fail span "pattern match failed"
-  | (case : Core.case) :: rest ->
-      (match bind environment case.value.case_pattern value with
+  | (case : Core.case) :: rest -> (
+      match bind environment case.value.case_pattern value with
       | Some environment -> evaluate context environment case.value.case_body
       | None -> cases_value context environment span value rest)
 
@@ -88,7 +91,9 @@ let program ~write (checked : Check.checked) =
   let core = checked.core in
   let context = Runtime.create ~write core.span in
   Runtime.protect context (fun () ->
-    let environment = Runtime.initialize context core.value.types core.value.builtins in
-    match evaluate context environment core.value.body with
-    | Unit -> ()
-    | _ -> assert false)
+      let environment =
+        Runtime.initialize context core.value.types core.value.builtins
+      in
+      match evaluate context environment core.value.body with
+      | Unit -> ()
+      | _ -> assert false)

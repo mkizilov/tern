@@ -20,6 +20,10 @@
   lib/anf.ml
   lib/lower.ml
   lib/ir_interp.ml
+  lib/closed.ml
+  lib/free_vars.ml
+  lib/closure_convert.ml
+  lib/closed_interp.ml
   bin/dune
   bin/ternc.ml
   test/dune
@@ -28,6 +32,7 @@
   test/interp_tests.ml
   test/interp_cli.t
   test/anf_tests.ml
+  test/closure_tests.ml
   test/ir_cli.t
   test/cli.t
   dune-project

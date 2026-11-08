@@ -72,6 +72,9 @@ class ScriptTests(unittest.TestCase):
         self.root = Path(self.temporary.name) / "test project"
         self.root.mkdir()
         shutil.copytree(ROOT / "scripts", self.root / "scripts")
+        # Dune source copies are read-only; only the owned mock manifest is rewritten.
+        (self.root / "scripts").chmod(0o755)
+        (self.root / "scripts" / "tool-checksums.sha256").chmod(0o644)
         self.bin = self.root / ".tools" / "bin"
         self.bin.mkdir(parents=True)
         self.assets = self.root / "assets"
@@ -95,7 +98,7 @@ class ScriptTests(unittest.TestCase):
         self.env.pop("MOCK_DUNE_FAIL", None)
         self.env.pop("MOCK_DOWNLOAD_FAIL", None)
         executable(self.assets / "dune", DUNE)
-        executable(self.assets / "ocamlc", "#!/bin/sh\necho 5.5.2\n")
+        executable(self.assets / "ocamlc", "#!/bin/sh\necho 5.4.1\n")
         executable(self.bin / "curl", CURL)
         self.prepare_assets("Darwin", "arm64")
 
@@ -163,7 +166,7 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(calls.count("opam switch create . --empty --yes"), 1)
         self.assertIn(
             f"opam install --switch={self.root} --yes --no-depexts "
-            "ocaml-base-compiler.5.5.2 dune",
+            "ocaml-base-compiler.5.4.1 dune",
             calls,
         )
         self.assertIn(
@@ -171,7 +174,7 @@ class ScriptTests(unittest.TestCase):
             "--yes --no-depexts",
             calls,
         )
-        self.assertIn("dune build @opam -j 2", calls)
+        self.assertIn("dune build @opam --root . -j 2", calls)
 
     def test_mocked_setup_is_repeatable(self):
         self.assertEqual(self.run_script("setup.sh").returncode, 0)
@@ -228,7 +231,7 @@ class ScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             [c for c in self.calls() if c.startswith("dune ")],
-            ["dune build -j 2", "dune test -j 2", "dune fmt -j 2"],
+            ["dune build --root . -j 2", "dune test --root . -j 2", "dune fmt --root . -j 2"],
         )
         for call in self.calls():
             if call.startswith("opam exec "):
@@ -244,7 +247,7 @@ class ScriptTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 17, result.stderr)
                 dune_calls = [c for c in self.calls() if c.startswith("dune ")]
                 self.assertEqual(len(dune_calls), index + 1)
-                self.assertEqual(dune_calls[-1], f"dune {phase} -j 2")
+                self.assertEqual(dune_calls[-1], f"dune {phase} --root . -j 2")
 
     def test_supplied_environment_is_preserved_and_workers_are_bounded(self):
         executable(
@@ -289,7 +292,7 @@ class RepositoryTests(unittest.TestCase):
         messages = (ROOT / "lib" / "grammar.messages").read_text()
         parser = (ROOT / "lib" / "parse.ml").read_text()
         self.assertIn("--strict --table", dune)
-        self.assertIn("--compile-errors grammar.messages grammar.mly", dune)
+        self.assertIn("--compile-errors grammar.messages grammar.mly", " ".join(dune.split()))
         self.assertIn("(target grammar_messages.ml)", dune)
         self.assertEqual(messages.count("program: "), 18)
         self.assertIn("expected `in` after let binding", messages)
@@ -417,6 +420,35 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("ternc run --ir", cli)
         self.assertIn("ternc dump-ir", cli)
         self.assertIn("Lower.program checked", main)
+
+    def test_free_variable_analysis_covers_anf_and_closed_ir_has_no_lexical_functions(self):
+        anf = (ROOT / "lib" / "anf.ml").read_text()
+        free = (ROOT / "lib" / "free_vars.ml").read_text()
+        closed = (ROOT / "lib" / "closed.ml").read_text()
+        forms = anf.split("and expr_desc =", 1)[1].split("and rhs =", 1)[0]
+        variants = set(re.findall(r"\|\s*(\w+)", forms))
+        handled = set(re.findall(r"\|\s*(?:Anf\.)?(\w+)", free))
+        self.assertLessEqual(variants, handled)
+        self.assertIn("remove_all join.value.parameters", free)
+        executable_forms = closed.split("type function_definition", 1)[0]
+        self.assertNotRegex(executable_forms, r"\|\s*(Lambda|Let_rec)\b")
+        self.assertIn("Direct_call of int * atom * atom", closed)
+        self.assertIn("environment : Core.name", closed)
+
+    def test_converted_interpreter_uses_only_explicit_environment_records(self):
+        interpreter = (ROOT / "lib" / "closed_interp.ml").read_text()
+        conversion = (ROOT / "lib" / "closure_convert.ml").read_text()
+        runtime = (ROOT / "lib" / "runtime.ml").read_text()
+        main = (ROOT / "bin" / "ternc.ml").read_text()
+        tests = (ROOT / "test" / "closure_tests.ml").read_text()
+        self.assertIn("Closure_record of int", runtime)
+        self.assertIn("Array.make size None", interpreter)
+        self.assertIn("let values = Ids.empty", " ".join(interpreter.split()))
+        self.assertIn("Free_vars.function_body", conversion)
+        self.assertIn("Closed.Environment_set", conversion)
+        self.assertIn("Closed.Direct_call", conversion)
+        self.assertIn("Ir_interp.closed ~write (Closure_convert.program", " ".join(main.split()))
+        self.assertIn("AST = ANF = closed IR = golden bytes", tests)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

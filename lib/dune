@@ -14,5 +14,12 @@
  (target grammar_messages.ml)
  (deps grammar.mly grammar.messages)
  (action
-  (with-stdout-to %{target}
-   (run %{bin:menhir} --strict --table --compile-errors grammar.messages grammar.mly))))
+  (with-stdout-to
+   %{target}
+   (run
+    %{bin:menhir}
+    --strict
+    --table
+    --compile-errors
+    grammar.messages
+    grammar.mly))))

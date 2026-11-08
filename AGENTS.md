@@ -22,9 +22,9 @@ Extend this file with the project's language-specific architecture and verificat
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
   The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
   source printer, Core/resolver, HM inference, and typed match coverage live in
-  `lib/`, alongside AST/ANF interpreters and ANF lowering. `bin/ternc.ml` implements
-  checking, `dump-ir`, and `run --interp`/`run --ir`; WebAssembly phases are not
-  implemented.
+  `lib/`, alongside AST/ANF interpreters, ANF lowering, and closure conversion.
+  `bin/ternc.ml` implements checking, `dump-ir`, and `run --interp`/`run --ir`;
+  WebAssembly phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -76,6 +76,15 @@ Extend this file with the project's language-specific architecture and verificat
 - `Runtime` is the shared value/primitive/output contract, parameterized by
   closure-body representation. AST and IR walkers must remain separate; the IR
   interpreter must not fall back to Core pattern matching or Core evaluation.
+- `Closure_convert.program` lifts every callable into `Closed.program`'s function
+  table. Converted functions receive only an explicit environment and argument;
+  no implicit lexical/global value map is available inside them. Keep sorted
+  free-variable captures, shared recursive layouts, and initialization ordering.
+- Statically known functions/aliases use `Closed.Direct_call` with an environment;
+  only unknown higher-order values use closure dispatch. Builtins and payload
+  constructors have closed wrappers and the same index/environment record format.
+- `run --ir` executes closure-converted IR. `dump-ir --closed` shows it; the
+  unconverted ANF printer/interpreter remain available for differential checks.
 - Use `dune exec ternc -- dump-ir file.tern` or `run --ir`. Differential native
   corpus tests require AST stdout = IR stdout = `.out` bytes, including failures'
   partial output and source locations in focused regression cases.
@@ -87,7 +96,7 @@ Extend this file with the project's language-specific architecture and verificat
   message witnesses valid and non-redundant after grammar changes. Use the same
   table-backend flags for generation and message compilation. Native compilation
   validates the file; do not hard-code automaton state numbers in OCaml.
-- OCaml 5.5.2 is selected for the project-local `_opam/` switch. Run
+- OCaml 5.4.1 is selected for the verified project-local `_opam/` switch. Run
   `scripts/setup.sh` for local opam, dependencies, and pinned wasm-tools.
   Preserve the supplied project-local environment. `DESIGN.md` records host
   prerequisites and the installation limitation observed in turn 1.

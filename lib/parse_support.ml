@@ -1,7 +1,6 @@
 open Ast
 
 let cover (first : span) (last : span) = { first with end_pos = last.end_pos }
-
 let node span value = { value; span }
 
 let name (token : Token.t) =
@@ -30,11 +29,13 @@ let negative (minus : Token.t) expression =
   match expression with
   | Magnitude integer ->
       Expr
-        (node (cover minus.span integer.span)
+        (node
+           (cover minus.span integer.span)
            (E_literal (Int (Int64.to_int32 (Int64.neg integer.value)))))
   | Expr expression ->
       Expr
-        (node (cover minus.span expression.span)
+        (node
+           (cover minus.span expression.span)
            (E_unary (node minus.span Negate, expression)))
 
 let lambda parameters body =
@@ -45,17 +46,18 @@ let lambda parameters body =
 
 let binding pattern parameters body =
   let body = lambda parameters (finish body) in
-  node (cover pattern.span body.span)
+  node
+    (cover pattern.span body.span)
     { binding_pattern = pattern; binding_body = body }
 
 let recursive bindings =
   List.iter
     (fun binding ->
       match
-        binding.value.binding_pattern.value, binding.value.binding_body.value
+        (binding.value.binding_pattern.value, binding.value.binding_body.value)
       with
       | P_variable _, E_lambda _ -> ()
       | _ ->
           error binding.span "recursive bindings require a name and a function")
     bindings;
-  Recursive, bindings
+  (Recursive, bindings)

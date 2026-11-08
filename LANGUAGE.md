@@ -274,8 +274,8 @@ the entire AST except source spans; neither parsing nor printing implies that
 the program is well-typed or executable yet.
 
 `ternc run --interp file.tern` runs the fully checked program using the reference
-tree walker; `ternc run --ir file.tern` runs its A-normal lowering. Both execute
-top-level declarations in order and add no implicit
+tree walker; `ternc run --ir file.tern` runs its A-normal, closure-converted
+lowering. Both execute top-level declarations in order and add no implicit
 output. Runtime diagnostics go separately to stderr; bytes already emitted by
 the source program remain on stdout. This interpreter defines the behavior the
 future Wasm backend must match. Host stack/memory limits can still stop a run;

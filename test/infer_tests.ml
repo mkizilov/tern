@@ -13,8 +13,10 @@ let reject ~at source =
   | Error diagnostic ->
       assert (diagnostic.severity = Diagnostic.Error);
       let span = diagnostic.primary in
-      assert (String.sub source span.start_pos.byte_offset
-                (span.end_pos.byte_offset - span.start_pos.byte_offset) = at);
+      assert (
+        String.sub source span.start_pos.byte_offset
+          (span.end_pos.byte_offset - span.start_pos.byte_offset)
+        = at);
       print_endline diagnostic.message
 
 let render_error source =
@@ -23,13 +25,13 @@ let render_error source =
   | Error diagnostic ->
       print_string
         (Diagnostic.render
-           ~source:(fun file -> if file = "types.tern" then Some source else None)
+           ~source:(fun file ->
+             if file = "types.tern" then Some source else None)
            diagnostic)
 
 let%expect_test "01 one polymorphic identity is used at two types" =
   check "let id x = x;; let pair = (id 1, id true);;";
-  [%expect
-    {|
+  [%expect {|
     val id : 'a -> 'a
     val pair : int * bool
     |}]
@@ -58,7 +60,8 @@ let%expect_test "07 an alias of an outer argument stays monomorphic" =
   check "let f x = let y = x in y;;";
   [%expect {| val f : 'a -> 'a |}]
 
-let%expect_test "08 only the local function's independent argument is generalized" =
+let%expect_test
+    "08 only the local function's independent argument is generalized" =
   check "let f x = let g y = x in g;;";
   [%expect {| val f : 'a -> 'b -> 'a |}]
 
@@ -68,16 +71,14 @@ let%expect_test "09 exported local variables are lowered to the outer level" =
 
 let%expect_test "10 instantiation permits identity applied to itself" =
   check "let id x = x;; let self = id id;;";
-  [%expect
-    {|
+  [%expect {|
     val id : 'a -> 'a
     val self : 'a -> 'a
     |}]
 
 let%expect_test "11 no value restriction on a closed application RHS" =
   check "let id = (fun f -> f) (fun x -> x);; let pair = (id 1, id true);;";
-  [%expect
-    {|
+  [%expect {|
     val id : 'a -> 'a
     val pair : int * bool
     |}]
@@ -98,16 +99,16 @@ let%expect_test "13 factorial" =
 
 let%expect_test "14 recursive identity is generalized after its body" =
   check "let rec id x = x;; let pair = (id 1, id true);;";
-  [%expect
-    {|
+  [%expect {|
     val id : 'a -> 'a
     val pair : int * bool
     |}]
 
 let%expect_test "15 mutually recursive predicates" =
-  check "let rec even n = if n = 0 then true else odd (n - 1) and odd n = if n = 0 then false else even (n - 1);;";
-  [%expect
-    {|
+  check
+    "let rec even n = if n = 0 then true else odd (n - 1) and odd n = if n = 0 \
+     then false else even (n - 1);;";
+  [%expect {|
     val even : int -> bool
     val odd : int -> bool
     |}]
@@ -122,7 +123,9 @@ let%expect_test "16 mutual group generalization happens after every body" =
     |}]
 
 let%expect_test "17 each binder in a closed tuple let is polymorphic" =
-  check "let (f, g) = ((fun x -> x), (fun y -> y));; let uses = (f 1, f true, g \"s\", g 2);;";
+  check
+    "let (f, g) = ((fun x -> x), (fun y -> y));; let uses = (f 1, f true, g \
+     \"s\", g 2);;";
   [%expect
     {|
     val f : 'a -> 'a
@@ -132,8 +135,7 @@ let%expect_test "17 each binder in a closed tuple let is polymorphic" =
 
 let%expect_test "18 unit and wildcard parameters" =
   check "let ignore _ = ();; let tick () = 42;;";
-  [%expect
-    {|
+  [%expect {|
     val ignore : 'a -> unit
     val tick : unit -> int
     |}]
@@ -146,7 +148,8 @@ let%expect_test "20 string concatenation" =
   check {|let greet name = "hello " ^ name;;|};
   [%expect {| val greet : string -> string |}]
 
-let%expect_test "21 boolean short-circuit desugaring enforces boolean operands" =
+let%expect_test "21 boolean short-circuit desugaring enforces boolean operands"
+    =
   check "let both x y = x && y;; let either x y = x || y;;";
   [%expect
     {|
@@ -155,7 +158,9 @@ let%expect_test "21 boolean short-circuit desugaring enforces boolean operands" 
     |}]
 
 let%expect_test "22 polymorphic option constructors" =
-  check "type 'a option = None | Some of 'a;; let none = None;; let some = Some;; let pair = (Some 1, Some true);;";
+  check
+    "type 'a option = None | Some of 'a;; let none = None;; let some = Some;; \
+     let pair = (Some 1, Some true);;";
   [%expect
     {|
     val none : 'a option
@@ -164,15 +169,20 @@ let%expect_test "22 polymorphic option constructors" =
     |}]
 
 let%expect_test "23 map over an option" =
-  check "type 'a option = None | Some of 'a;; let map f value = match value with None -> None | Some x -> Some (f x);;";
+  check
+    "type 'a option = None | Some of 'a;; let map f value = match value with \
+     None -> None | Some x -> Some (f x);;";
   [%expect {| val map : ('a -> 'b) -> 'a option -> 'b option |}]
 
 let%expect_test "24 recursive list length, map, and fold" =
   check
     "type 'a list = Nil | Cons of ('a * 'a list);;\n\
-     let rec length xs = match xs with Nil -> 0 | Cons (_, rest) -> 1 + length rest;;\n\
-     let rec map f xs = match xs with Nil -> Nil | Cons (x, rest) -> Cons (f x, map f rest);;\n\
-     let rec fold f acc xs = match xs with Nil -> acc | Cons (x, rest) -> fold f (f acc x) rest;;";
+     let rec length xs = match xs with Nil -> 0 | Cons (_, rest) -> 1 + length \
+     rest;;\n\
+     let rec map f xs = match xs with Nil -> Nil | Cons (x, rest) -> Cons (f \
+     x, map f rest);;\n\
+     let rec fold f acc xs = match xs with Nil -> acc | Cons (x, rest) -> fold \
+     f (f acc x) rest;;";
   [%expect
     {|
     val length : 'a list -> int
@@ -181,7 +191,9 @@ let%expect_test "24 recursive list length, map, and fold" =
     |}]
 
 let%expect_test "25 two-parameter nominal constructors" =
-  check "type ('a, 'b) result = Ok of 'a | Error of 'b;; let ok = Ok;; let error = Error;;";
+  check
+    "type ('a, 'b) result = Ok of 'a | Error of 'b;; let ok = Ok;; let error = \
+     Error;;";
   [%expect
     {|
     val ok : 'a -> ('a, 'b) result
@@ -190,8 +202,7 @@ let%expect_test "25 two-parameter nominal constructors" =
 
 let%expect_test "26 value and primitive type namespaces stay separate" =
   check "type box = Box of int;; let int = 1;; let box = Box int;;";
-  [%expect
-    {|
+  [%expect {|
     val int : int
     val box : box
     |}]
@@ -201,7 +212,9 @@ let%expect_test "27 a conditional returning identity functions" =
   [%expect {| val choose : bool -> 'a -> 'a |}]
 
 let%expect_test "28 constructors are first-class function arguments" =
-  check "type 'a option = None | Some of 'a;; let make f x = f x;; let some = make Some 1;;";
+  check
+    "type 'a option = None | Some of 'a;; let make f x = f x;; let some = make \
+     Some 1;;";
   [%expect
     {|
     val make : ('a -> 'b) -> 'a -> 'b
@@ -216,22 +229,23 @@ let%expect_test "30 a recursive local closure keeps its outer argument" =
   check "let outer x = let rec f y = if y then x else f true in f;;";
   [%expect {| val outer : 'a -> bool -> 'a |}]
 
-let%expect_test "31 tuple generalization separates captured and independent components" =
+let%expect_test
+    "31 tuple generalization separates captured and independent components" =
   check "let f x = let (a, b) = (x, fun y -> y) in (a, b 1, b true);;";
   [%expect {| val f : 'a -> 'a * int * bool |}]
 
 let%expect_test "32 no value restriction on a closed conditional RHS" =
-  check "let id = if true then (fun x -> x) else (fun y -> y);; let pair = (id 1, id true);;";
-  [%expect
-    {|
+  check
+    "let id = if true then (fun x -> x) else (fun y -> y);; let pair = (id 1, \
+     id true);;";
+  [%expect {|
     val id : 'a -> 'a
     val pair : int * bool
     |}]
 
 let%expect_test "33 shadowing a built-in does not retain its old type" =
   check {|let print_int x = x;; let pair = (print_int true, print_int "yes");;|};
-  [%expect
-    {|
+  [%expect {|
     val print_int : 'a -> 'a
     val pair : bool * string
     |}]
@@ -282,7 +296,8 @@ let%expect_test "39 lambda parameters cannot be used polymorphically" =
   reject ~at:"true" "let bad f = (f 1, f true);;";
   [%expect {| type mismatch: expected int, but got bool |}]
 
-let%expect_test "40 an alias cannot generalize a variable owned by an outer lambda" =
+let%expect_test
+    "40 an alias cannot generalize a variable owned by an outer lambda" =
   reject ~at:"true" "let bad x = let y = x in (y 1, y true);;";
   [%expect {| type mismatch: expected int, but got bool |}]
 
@@ -312,7 +327,8 @@ let%expect_test "46 distinct variant types are nominal, not structural" =
 
 let%expect_test "47 constructor payload patterns impose types" =
   reject ~at:"Some 0"
-    "type 'a option = None | Some of 'a;; let bad = match Some true with Some 0 -> 0 | None -> 0;;";
+    "type 'a option = None | Some of 'a;; let bad = match Some true with Some \
+     0 -> 0 | None -> 0;;";
   [%expect {| type mismatch: expected int, but got bool |}]
 
 let%expect_test "48 recursive uses stay monomorphic until the group ends" =
@@ -332,7 +348,8 @@ let%expect_test "50 integer-only equality is not accidentally polymorphic" =
   reject ~at:"true" "let bad = true = false;;";
   [%expect {| type mismatch: expected int, but got bool |}]
 
-let%expect_test "51 a diverging recursive function need not have a cyclic type" =
+let%expect_test "51 a diverging recursive function need not have a cyclic type"
+    =
   check "let rec loop x = loop x;;";
   [%expect {| val loop : 'a -> 'b |}]
 
@@ -346,7 +363,8 @@ let%expect_test "52 nonliteral unary negation has an integer signature" =
     |}]
 
 let%expect_test "53 every member of a recursive group is generalized" =
-  check "let rec f x = 0 and g y = y;; let uses = (f true, f \"s\", g 1, g false);;";
+  check
+    "let rec f x = 0 and g y = y;; let uses = (f true, f \"s\", g 1, g false);;";
   [%expect
     {|
     val f : 'a -> int
@@ -363,7 +381,8 @@ let%expect_test "54 boolean operand errors do not point at synthetic branches" =
     type mismatch: expected bool, but got int
     |}]
 
-let%expect_test "match-bound variables are monomorphic, unlike pattern-let variables" =
+let%expect_test
+    "match-bound variables are monomorphic, unlike pattern-let variables" =
   reject ~at:"true"
     "let id x = x;; let bad = match (id, id) with (f, g) -> (f 1, f true);;";
   [%expect {| type mismatch: expected int, but got bool |}]
@@ -383,7 +402,11 @@ let%expect_test "all example programs type-check with a unit program result" =
   assert (List.length files = 15);
   List.iter
     (fun file ->
-      let source = In_channel.with_open_bin (Filename.concat directory file) In_channel.input_all in
+      let source =
+        In_channel.with_open_bin
+          (Filename.concat directory file)
+          In_channel.input_all
+      in
       match infer source with
       | Error diagnostic -> failwith (Diagnostic.show diagnostic)
       | Ok result ->

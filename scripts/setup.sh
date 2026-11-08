@@ -3,7 +3,7 @@ set -eu
 . "$(dirname -- "$0")/env.sh"
 
 OPAM_VERSION=2.6.1
-OCAML_VERSION=5.5.2
+OCAML_VERSION=5.4.1
 WASM_TOOLS_VERSION=1.263.0
 
 case "$(uname -s)" in
@@ -62,8 +62,10 @@ if [ ! -d "$ROOT/_opam" ]; then
     opam switch create . --empty --yes
 fi
 opam install --switch="$ROOT" --yes --no-depexts "ocaml-base-compiler.$OCAML_VERSION" dune
-opam exec --switch="$ROOT" -- dune build @opam -j 2
+opam exec --switch="$ROOT" -- dune build @opam --root . -j 2
 opam install . --switch="$ROOT" --deps-only --with-test --yes --no-depexts
-opam exec --switch="$ROOT" -- ocamlc -version
+installed_ocaml=$(opam exec --switch="$ROOT" -- ocamlc -version)
+[ "$installed_ocaml" = "$OCAML_VERSION" ] || { echo "Expected OCaml $OCAML_VERSION, got $installed_ocaml" >&2; exit 1; }
+echo "$installed_ocaml"
 wasm-tools --version
 echo 'Setup complete. Run scripts/check.sh.'

@@ -1,5 +1,4 @@
-type error = Diagnostic.t
-[@@deriving show { with_path = false }]
+type error = Diagnostic.t [@@deriving show { with_path = false }]
 
 let token (token : Token.t) =
   match token.value with
@@ -49,21 +48,24 @@ let token (token : Token.t) =
 let program ~file source =
   let position : Ast.position = { line = 1; column = 0; byte_offset = 0 } in
   let span : Ast.span = { file; start_pos = position; end_pos = position } in
-  let last : Token.t ref = ref { value = Token.Eof; span } in
+  let last : Token.t ref = ref { Ast.value = Token.Eof; span } in
   let beginnings = ref [ 0 ] in
   String.iteri
     (fun index character ->
-      if character = '\n'
-         || (character = '\r'
-             && (index + 1 = String.length source || source.[index + 1] <> '\n'))
+      if
+        character = '\n'
+        || character = '\r'
+           && (index + 1 = String.length source || source.[index + 1] <> '\n')
       then beginnings := (index + 1) :: !beginnings)
     source;
   let beginnings = Array.of_list (List.rev !beginnings) in
   let lexing_position (position : Ast.position) : Lexing.position =
-    { pos_fname = file;
+    {
+      pos_fname = file;
       pos_lnum = position.line;
       pos_bol = beginnings.(position.line - 1);
-      pos_cnum = position.byte_offset }
+      pos_cnum = position.byte_offset;
+    }
   in
   try
     let lexer = Lexer.create ~file source in
@@ -75,8 +77,9 @@ let program ~file source =
           last := next;
           loop
             (I.offer checkpoint
-               (token next, lexing_position next.span.start_pos,
-                lexing_position next.span.end_pos))
+               ( token next,
+                 lexing_position next.span.start_pos,
+                 lexing_position next.span.end_pos ))
       | I.Shifting _ | I.AboutToReduce _ -> loop (I.resume checkpoint)
       | I.Accepted program -> Ok program
       | I.HandlingError environment ->
@@ -85,13 +88,13 @@ let program ~file source =
               Grammar_messages.message (I.current_state_number environment)
               |> String.trim
             with Not_found ->
-              "unexpected " ^ Token.show_kind (!last).value
+              "unexpected "
+              ^ Token.show_kind !last.value
               ^ "; check the surrounding expression or declaration"
           in
-          Error (Diagnostic.make (!last).span message)
+          Error (Diagnostic.make !last.span message)
       | I.Rejected ->
-          Error (Diagnostic.make (!last).span "expected a complete Tern program")
+          Error (Diagnostic.make !last.span "expected a complete Tern program")
     in
     loop (Grammar.Incremental.program (lexing_position position))
-  with
-  | Diagnostic.Raised error -> Error error
+  with Diagnostic.Raised error -> Error error

@@ -9,7 +9,7 @@ let print source = print_string (Pretty.program (parse source))
 
 let only_body source =
   match (parse source).value with
-  | [ { value = Ast.D_let (_, [binding]); _ } ] -> binding.value.binding_body
+  | [ { value = Ast.D_let (_, [ binding ]); _ } ] -> binding.value.binding_body
   | _ -> assert false
 
 let print_error source =
@@ -29,7 +29,8 @@ let round_trip source =
   assert (original <> reparsed);
   printed
 
-let%expect_test "operator precedence, associativity, application, and negation" =
+let%expect_test "operator precedence, associativity, application, and negation"
+    =
   print "let x = 1 + 2 * 3 - 4 / 2;;";
   print "let x = f a b + g (-2);;";
   print "let x = -f x;;";
@@ -66,18 +67,18 @@ let%expect_test "control bodies consume operators and sequencing to the right" =
 let%expect_test "nested matches bind a bare bar to the innermost match" =
   let inspect source =
     match (only_body source).value with
-    | Ast.E_match (_, first :: rest) ->
-        (match first.value.case_body.value with
+    | Ast.E_match (_, first :: rest) -> (
+        match first.value.case_body.value with
         | E_match (_, inner) ->
-            Printf.printf "outer arms=%d inner arms=%d\n" (1 + List.length rest)
+            Printf.printf "outer arms=%d inner arms=%d\n"
+              (1 + List.length rest)
               (List.length inner)
         | _ -> assert false)
     | _ -> assert false
   in
   inspect "let x = match a with A -> match b with B -> 1 | C -> 2;;";
   inspect "let x = match a with A -> (match b with B -> 1) | C -> 2;;";
-  inspect
-    "let x = match a with A -> match b with B -> 1 | C -> 2 | D -> 3;;";
+  inspect "let x = match a with A -> match b with B -> 1 | C -> 2 | D -> 3;;";
   [%expect
     {|
     outer arms=1 inner arms=2
@@ -111,7 +112,8 @@ let%expect_test "tuple and nested constructor patterns, wildcard and literals" =
     let f = (fun x -> (match x with | () -> ()));;
     |}]
 
-let%expect_test "parametric variants, postfix types, products, and right arrows" =
+let%expect_test "parametric variants, postfix types, products, and right arrows"
+    =
   print "type 'a list = Nil | Cons of ('a * 'a list);;";
   print "type ('a, 'b) result = | Ok of 'a | Error of 'b;;";
   print "type 'a fn = F of int -> 'a * bool -> string;;";
@@ -127,11 +129,13 @@ let%expect_test "parametric variants, postfix types, products, and right arrows"
 let%expect_test "minimum integers and unary AST nodes survive printing" =
   List.iter
     (fun source -> print_string (round_trip source))
-    [ "let x = -2147483648;;";
+    [
+      "let x = -2147483648;;";
       "let x = -1;;";
       "let x = -(1);;";
       "let x = --1;;";
-      "let f x = match x with -2147483648 -> 1 | _ -> 0;;" ];
+      "let f x = match x with -2147483648 -> 1 | _ -> 0;;";
+    ];
   [%expect
     {|
     let x = (-2147483648);;
@@ -150,20 +154,22 @@ let%expect_test "all syntax data participates in equality, but no spans do" =
   let same = parse ~file:"two.tern" "\nlet x = (fun y -> (y + 1));;\n" in
   let changed = parse "let x = fun y -> y + 2;;" in
   Printf.printf "same syntax=%b changed literal=%b spans differ=%b\n"
-    (Ast.equal_program first same) (Ast.equal_program first changed)
+    (Ast.equal_program first same)
+    (Ast.equal_program first changed)
     (first.span <> same.span);
   [%expect {| same syntax=true changed literal=false spans differ=true |}]
 
-let%expect_test "located nodes include keyword delimiters and exact Unicode bytes" =
+let%expect_test
+    "located nodes include keyword delimiters and exact Unicode bytes" =
   let program = parse ~file:"unicode.tern" "let x = \"é\";;\n" in
   let show label (span : Ast.span) =
     Printf.printf "%s %s:%d:%d-%d:%d bytes=%d-%d\n" label span.file
-      span.start_pos.line span.start_pos.column span.end_pos.line span.end_pos.column
-      span.start_pos.byte_offset span.end_pos.byte_offset
+      span.start_pos.line span.start_pos.column span.end_pos.line
+      span.end_pos.column span.start_pos.byte_offset span.end_pos.byte_offset
   in
   show "program" program.span;
   (match program.value with
-  | [ { value = Ast.D_let (_, [binding]); span } ] ->
+  | [ { value = Ast.D_let (_, [ binding ]); span } ] ->
       show "declaration" span;
       show "binding" binding.span;
       show "pattern" binding.value.binding_pattern.span;
@@ -180,14 +186,16 @@ let%expect_test "located nodes include keyword delimiters and exact Unicode byte
 
 let%expect_test "syntax, range, and recursive-binding errors have locations" =
   List.iter print_error
-    [ "let x = 1";
+    [
+      "let x = 1";
       "let x = if true then 1;;";
       "let x = 1 < 2 < 3;;";
       "let x = 2147483648;;";
       "let x = -(2147483648);;";
       "let rec x = 1;;";
       "let x = 1 and y = 2;;";
-      "let x =\n @;;" ];
+      "let x =\n @;;";
+    ];
   [%expect
     {|
     expected `;;` after top-level declaration at 1:9-1:9
@@ -200,18 +208,21 @@ let%expect_test "syntax, range, and recursive-binding errors have locations" =
     invalid character "@" at 2:1-2:2
     |}]
 
-let%expect_test "malformed tuples, patterns, and type declarations are rejected" =
+let%expect_test "malformed tuples, patterns, and type declarations are rejected"
+    =
   List.iter
     (fun source ->
       match Parse.program ~file:"invalid.tern" source with
       | Error _ -> print_endline "rejected"
       | Ok _ -> failwith source)
-    [ "let x = (1,);;";
+    [
+      "let x = (1,);;";
       "let Some x = 1;;";
       "let rec (x, y) = fun z -> z;;";
       "let x = match y with;;";
       "type t = ;;";
-      "type t = C of;;" ];
+      "type t = C of;;";
+    ];
   [%expect
     {|
     rejected
@@ -222,7 +233,8 @@ let%expect_test "malformed tuples, patterns, and type declarations are rejected"
     rejected
     |}]
 
-let%expect_test "all examples parse, print, and reparse with span-free AST equality" =
+let%expect_test
+    "all examples parse, print, and reparse with span-free AST equality" =
   let directory = "../examples" in
   let files =
     Sys.readdir directory |> Array.to_list
@@ -233,7 +245,9 @@ let%expect_test "all examples parse, print, and reparse with span-free AST equal
   List.iter
     (fun name ->
       let source =
-        In_channel.with_open_bin (Filename.concat directory name) In_channel.input_all
+        In_channel.with_open_bin
+          (Filename.concat directory name)
+          In_channel.input_all
       in
       let first = parse ~file:name source in
       let printed = Pretty.program first in
@@ -272,8 +286,7 @@ let%expect_test "empty and comment-only programs round-trip" =
       assert (Ast.equal_program ast (parse ""));
       print_endline "empty program")
     [ ""; "(* just a comment *)\n" ];
-  [%expect
-    {|
+  [%expect {|
     empty program
     empty program
     |}]

@@ -31,11 +31,19 @@ and rhs_desc =
 
 and function_binding = function_desc Ast.located
 
-and function_desc = { function_name : Core.name; parameter : Core.name; body : expr }
+and function_desc = {
+  function_name : Core.name;
+  parameter : Core.name;
+  body : expr;
+}
 
 and join = join_desc Ast.located
 
-and join_desc = { label : Core.name; parameters : Core.name list; action : expr }
+and join_desc = {
+  label : Core.name;
+  parameters : Core.name list;
+  action : expr;
+}
 [@@deriving show { with_path = false }, eq]
 
 type program = program_desc Ast.located

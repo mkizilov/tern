@@ -16,6 +16,11 @@ for path in "$HOME" "$TMPDIR" "$OPAMROOT" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "
 done
 mkdir -p .tools/bin
 export HOME TMPDIR OPAMROOT XDG_CACHE_HOME XDG_CONFIG_HOME XDG_DATA_HOME
+if [ "$(uname -s)" = Darwin ] && [ -z "${SDKROOT-}" ] && [ -n "${DEVELOPER_DIR-}" ] \
+    && [ -d "$DEVELOPER_DIR/SDKs/MacOSX.sdk" ]; then
+    SDKROOT="$DEVELOPER_DIR/SDKs/MacOSX.sdk"
+    export SDKROOT
+fi
 PATH="$ROOT/.tools/bin:$PATH"
 OPAMSWITCH="$ROOT"
 OPAMJOBS=2

@@ -28,3 +28,9 @@ Backend selection is unambiguous.
   $ ternc run --ir --interp arithmetic.tern > conflict.out 2> conflict.err
   [2]
   $ test ! -s conflict.out
+
+The optional closed dump exposes top-level code and closure records without running.
+
+  $ printf 'let make x = fun y -> x + y;;\n' > closure.tern
+  $ ternc dump-ir --closed closure.tern > converted.ir
+  $ test -s converted.ir

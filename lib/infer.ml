@@ -1,6 +1,7 @@
 module Ids = Map.Make (Int)
 
 type binding = { name : Core.name; scheme : Ty.t }
+
 type result = {
   bindings : binding list;
   body_type : Ty.t;
@@ -19,17 +20,18 @@ type context = {
 }
 
 let constrain span expected actual =
-  try Ty.unify expected actual with
-  | Ty.Unification_error reason ->
-      let expected, actual = Ty.show_pair expected actual in
-      let prefix, notes =
-        match reason with
-        | Ty.Mismatch -> "type mismatch", []
-        | Occurs_check ->
-            "infinite type", [ "occurs check: a type variable would contain itself" ]
-      in
-      Diagnostic.fail ~notes span
-        (prefix ^ ": expected " ^ expected ^ ", but got " ^ actual)
+  try Ty.unify expected actual
+  with Ty.Unification_error reason ->
+    let expected, actual = Ty.show_pair expected actual in
+    let prefix, notes =
+      match reason with
+      | Ty.Mismatch -> ("type mismatch", [])
+      | Occurs_check ->
+          ( "infinite type",
+            [ "occurs check: a type variable would contain itself" ] )
+    in
+    Diagnostic.fail ~notes span
+      (prefix ^ ": expected " ^ expected ^ ", but got " ^ actual)
 
 let literal context = function
   | Ast.Int _ -> context.int_type
@@ -40,19 +42,24 @@ let literal context = function
 let instance context level environment (name : Core.name) =
   Ty.instantiate context.variables level (Ids.find name.value.id environment)
 
-let rec pattern context level span (source : Core.pattern) actual : binding list =
+let rec pattern context level span (source : Core.pattern) actual : binding list
+    =
   match source.value with
   | Core.Wildcard -> []
   | Bind name -> [ { name; scheme = actual } ]
-  | Literal_pattern value -> constrain span (literal context value) actual; []
+  | Literal_pattern value ->
+      constrain span (literal context value) actual;
+      []
   | Tuple_pattern fields ->
       let types = List.map (fun _ -> Ty.fresh context.variables level) fields in
       constrain span (Ty.Tuple types) actual;
       List.concat (List.map2 (pattern context level span) fields types)
-  | Constructor_pattern (name, payload) ->
+  | Constructor_pattern (name, payload) -> (
       let signature = instance context level context.constructors name in
-      (match payload, Ty.repr signature with
-      | None, result -> constrain span result actual; []
+      match (payload, Ty.repr signature) with
+      | None, result ->
+          constrain span result actual;
+          []
       | Some payload, Ty.Arrow (argument, result) ->
           constrain span result actual;
           pattern context level span payload argument
@@ -60,7 +67,8 @@ let rec pattern context level span (source : Core.pattern) actual : binding list
 
 let extend environment bindings =
   List.fold_left
-    (fun environment binding -> Ids.add binding.name.value.id binding.scheme environment)
+    (fun environment binding ->
+      Ids.add binding.name.value.id binding.scheme environment)
     environment bindings
 
 let publish context level top bindings =
@@ -87,15 +95,19 @@ let rec expression context environment level top (source : Core.expr) : Ty.t =
       result
   | Let (binding_pattern, rhs, body) ->
       let rhs_type = expression context environment (level + 1) false rhs in
-      let bindings = pattern context (level + 1) rhs.span binding_pattern rhs_type in
+      let bindings =
+        pattern context (level + 1) rhs.span binding_pattern rhs_type
+      in
       publish context level top bindings;
       expression context (extend environment bindings) level top body
   | Let_rec (group, body) ->
       let bindings =
         List.map
           (fun (binding : Core.recursive_binding) ->
-            { name = binding.value.recursive_name;
-              scheme = Ty.fresh context.variables (level + 1) })
+            {
+              name = binding.value.recursive_name;
+              scheme = Ty.fresh context.variables (level + 1);
+            })
           group
       in
       let recursive_environment = extend environment bindings in
@@ -111,16 +123,20 @@ let rec expression context environment level top (source : Core.expr) : Ty.t =
       publish context level top bindings;
       expression context (extend environment bindings) level top body
   | If (condition, yes, no) ->
-      let condition_type = expression context environment level false condition in
+      let condition_type =
+        expression context environment level false condition
+      in
       constrain condition.span context.bool_type condition_type;
       let expected = expression context environment level false yes in
       let actual = expression context environment level false no in
       constrain no.span expected actual;
       expected
-  | Tuple fields -> Ty.Tuple (List.map (expression context environment level false) fields)
+  | Tuple fields ->
+      Ty.Tuple (List.map (expression context environment level false) fields)
   | Match (subject, cases) ->
       let subject_type = expression context environment level false subject in
-      context.matches <- { Coverage.span = source.span; subject_type; cases } :: context.matches;
+      context.matches <-
+        { Coverage.span = source.span; subject_type; cases } :: context.matches;
       let result = Ty.fresh context.variables level in
       List.iter
         (fun (case : Core.case) ->
@@ -129,7 +145,9 @@ let rec expression context environment level top (source : Core.expr) : Ty.t =
               case.value.case_pattern subject_type
           in
           let actual =
-            expression context (extend environment bindings) level false case.value.case_body
+            expression context
+              (extend environment bindings)
+              level false case.value.case_body
           in
           constrain case.value.case_body.span result actual)
         cases;
@@ -137,12 +155,13 @@ let rec expression context environment level top (source : Core.expr) : Ty.t =
   | Primitive (operator, operands) ->
       let arguments, result =
         match operator.value with
-        | Core.Negate -> [ context.int_type ], context.int_type
+        | Core.Negate -> ([ context.int_type ], context.int_type)
         | Add | Subtract | Multiply | Divide | Remainder ->
-            [ context.int_type; context.int_type ], context.int_type
-        | Concat -> [ context.string_type; context.string_type ], context.string_type
+            ([ context.int_type; context.int_type ], context.int_type)
+        | Concat ->
+            ([ context.string_type; context.string_type ], context.string_type)
         | Equal | Not_equal | Less | Less_equal | Greater | Greater_equal ->
-            [ context.int_type; context.int_type ], context.bool_type
+            ([ context.int_type; context.int_type ], context.bool_type)
       in
       List.iter2
         (fun (operand : Core.expr) expected ->
@@ -157,11 +176,13 @@ let constructor_schemes variables declarations =
       let definition = declaration.value in
       let parameters =
         List.map
-          (fun (name : Core.name) -> name.value.id, Ty.generic variables)
+          (fun (name : Core.name) -> (name.value.id, Ty.generic variables))
           definition.type_parameters
       in
       let parameter_map =
-        List.fold_left (fun map (id, typ) -> Ids.add id typ map) Ids.empty parameters
+        List.fold_left
+          (fun map (id, typ) -> Ids.add id typ map)
+          Ids.empty parameters
       in
       let rec translate (source : Core.type_expr) =
         match source.value with
@@ -174,7 +195,9 @@ let constructor_schemes variables declarations =
             Ty.Arrow (argument, result)
         | Type_tuple fields -> Ty.Tuple (List.map translate fields)
       in
-      let result = Ty.Constructor (definition.type_name.value, List.map snd parameters) in
+      let result =
+        Ty.Constructor (definition.type_name.value, List.map snd parameters)
+      in
       List.fold_left
         (fun environment (constructor : Core.constructor_decl) ->
           let scheme =
@@ -189,18 +212,22 @@ let constructor_schemes variables declarations =
 let program (program : Core.program) : (result, Diagnostic.t) Stdlib.result =
   let variables = Ty.create () in
   let builtin kind =
-    let name, _ = List.find (fun (_, value) -> value = kind) program.value.builtin_types in
+    let name, _ =
+      List.find (fun (_, value) -> value = kind) program.value.builtin_types
+    in
     Ty.Constructor (name.value, [])
   in
   let context =
-    { variables;
+    {
+      variables;
       constructors = constructor_schemes variables program.value.types;
       int_type = builtin Core.Int_type;
       bool_type = builtin Core.Bool_type;
       string_type = builtin Core.String_type;
       unit_type = builtin Core.Unit_type;
       reported = [];
-      matches = [] }
+      matches = [];
+    }
   in
   let environment =
     List.fold_left
@@ -210,7 +237,9 @@ let program (program : Core.program) : (result, Diagnostic.t) Stdlib.result =
           | Core.Print_int -> context.int_type
           | Print_string -> context.string_type
         in
-        Ids.add name.value.id (Ty.Arrow (argument, context.unit_type)) environment)
+        Ids.add name.value.id
+          (Ty.Arrow (argument, context.unit_type))
+          environment)
       Ids.empty program.value.builtins
   in
   try
@@ -223,5 +252,6 @@ let format_bindings result =
   String.concat ""
     (List.map
        (fun binding ->
-         "val " ^ binding.name.value.spelling ^ " : " ^ Ty.show binding.scheme ^ "\n")
+         "val " ^ binding.name.value.spelling ^ " : " ^ Ty.show binding.scheme
+         ^ "\n")
        result.bindings)

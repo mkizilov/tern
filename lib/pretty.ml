@@ -29,7 +29,8 @@ let rec pattern pat =
   | P_literal value -> literal value
   | P_tuple fields -> "(" ^ String.concat ", " (List.map pattern fields) ^ ")"
   | P_constructor (name, None) -> name.value
-  | P_constructor (name, Some payload) -> name.value ^ " (" ^ pattern payload ^ ")"
+  | P_constructor (name, Some payload) ->
+      name.value ^ " (" ^ pattern payload ^ ")"
 
 let operator = function
   | Add -> "+"
@@ -60,19 +61,24 @@ let rec expression expr =
   | E_if (condition, yes, no) ->
       "(if " ^ expression condition ^ " then " ^ expression yes ^ " else "
       ^ expression no ^ ")"
-  | E_tuple fields -> "(" ^ String.concat ", " (List.map expression fields) ^ ")"
+  | E_tuple fields ->
+      "(" ^ String.concat ", " (List.map expression fields) ^ ")"
   | E_match (subject, cases) ->
       "(match " ^ expression subject ^ " with "
-      ^ String.concat " " (List.map case cases) ^ ")"
+      ^ String.concat " " (List.map case cases)
+      ^ ")"
   | E_unary (operator, operand) ->
       let symbol = match operator.value with Negate -> "-" in
       "(" ^ symbol ^ "(" ^ expression operand ^ "))"
   | E_binary (op, left, right) ->
-      "(" ^ expression left ^ " " ^ operator op.value ^ " " ^ expression right ^ ")"
-  | E_sequence (left, right) -> "(" ^ expression left ^ "; " ^ expression right ^ ")"
+      "(" ^ expression left ^ " " ^ operator op.value ^ " " ^ expression right
+      ^ ")"
+  | E_sequence (left, right) ->
+      "(" ^ expression left ^ "; " ^ expression right ^ ")"
 
 and binding binding =
-  pattern binding.value.binding_pattern ^ " = "
+  pattern binding.value.binding_pattern
+  ^ " = "
   ^ expression binding.value.binding_body
 
 and binding_group flag bindings =
@@ -80,15 +86,19 @@ and binding_group flag bindings =
   prefix ^ String.concat " and " (List.map binding bindings)
 
 and case case =
-  "| " ^ pattern case.value.case_pattern ^ " -> " ^ expression case.value.case_body
+  "| "
+  ^ pattern case.value.case_pattern
+  ^ " -> "
+  ^ expression case.value.case_body
 
 let rec type_expression typ =
   match typ.value with
   | Type_variable name -> "'" ^ name.value
   | Type_constructor (name, []) -> name.value
   | Type_constructor (name, arguments) ->
-      "(" ^ String.concat ", " (List.map type_expression arguments) ^ ") "
-      ^ name.value
+      "("
+      ^ String.concat ", " (List.map type_expression arguments)
+      ^ ") " ^ name.value
   | Type_arrow (argument, result) ->
       "(" ^ type_expression argument ^ " -> " ^ type_expression result ^ ")"
   | Type_tuple fields ->
@@ -96,29 +106,32 @@ let rec type_expression typ =
 
 let constructor constructor =
   constructor.value.constructor_name.value
-  ^ match constructor.value.constructor_payload with
-    | None -> ""
-    | Some payload -> " of " ^ type_expression payload
+  ^
+  match constructor.value.constructor_payload with
+  | None -> ""
+  | Some payload -> " of " ^ type_expression payload
 
 let declaration declaration =
   (match declaration.value with
-  | D_let (flag, bindings) -> "let " ^ binding_group flag bindings
-  | D_type definition ->
-      let definition = definition.value in
-      let parameters =
-        List.map (fun name -> "'" ^ name.value) definition.type_parameters
-      in
-      let parameters =
-        match parameters with
-        | [] -> ""
-        | [ parameter ] -> parameter ^ " "
-        | parameters -> "(" ^ String.concat ", " parameters ^ ") "
-      in
-      "type " ^ parameters ^ definition.type_name.value ^ " = "
-      ^ String.concat " | " (List.map constructor definition.type_constructors))
+    | D_let (flag, bindings) -> "let " ^ binding_group flag bindings
+    | D_type definition ->
+        let definition = definition.value in
+        let parameters =
+          List.map (fun name -> "'" ^ name.value) definition.type_parameters
+        in
+        let parameters =
+          match parameters with
+          | [] -> ""
+          | [ parameter ] -> parameter ^ " "
+          | parameters -> "(" ^ String.concat ", " parameters ^ ") "
+        in
+        "type " ^ parameters ^ definition.type_name.value ^ " = "
+        ^ String.concat " | "
+            (List.map constructor definition.type_constructors))
   ^ ";;"
 
 let program program =
   match program.value with
   | [] -> ""
-  | declarations -> String.concat "\n" (List.map declaration declarations) ^ "\n"
+  | declarations ->
+      String.concat "\n" (List.map declaration declarations) ^ "\n"

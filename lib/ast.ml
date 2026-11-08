@@ -70,9 +70,7 @@ and expr_desc =
   | E_sequence of expr * expr
 
 and binding = binding_desc located
-
 and binding_desc = { binding_pattern : pattern; binding_body : expr }
-
 and case = case_desc located
 
 and case_desc = { case_pattern : pattern; case_body : expr }
@@ -97,9 +95,7 @@ and type_decl_desc = {
 
 type declaration = declaration_desc located
 
-and declaration_desc =
-  | D_let of rec_flag * binding list
-  | D_type of type_decl
+and declaration_desc = D_let of rec_flag * binding list | D_type of type_decl
 [@@deriving show { with_path = false }, eq]
 
 type program = declaration list located

@@ -1,6 +1,7 @@
 open Tern
 
-let source_file file source requested = if requested = file then Some source else None
+let source_file file source requested =
+  if requested = file then Some source else None
 
 let syntax source =
   match Parse.program ~file:"syntax.tern" source with
@@ -8,7 +9,8 @@ let syntax source =
   | Error diagnostic ->
       assert (diagnostic.severity = Diagnostic.Error);
       print_string
-        (Diagnostic.render ~color:false ~source:(source_file "syntax.tern" source)
+        (Diagnostic.render ~color:false
+           ~source:(source_file "syntax.tern" source)
            diagnostic)
 
 let%expect_test "01 missing binding pattern" =
@@ -121,7 +123,8 @@ let%expect_test "10 missing declaration terminator" =
       |          ^
     |}]
 
-let span ?(file = "primary.tern") first_line first_column last_line last_column =
+let span ?(file = "primary.tern") first_line first_column last_line last_column
+    =
   let start_pos : Ast.position =
     { line = first_line; column = first_column; byte_offset = 0 }
   in
@@ -153,9 +156,13 @@ let%expect_test "secondary spans, optional labels, severities, and notes" =
   let diagnostic =
     Diagnostic.make ~severity:Warning
       ~secondary:
-        [ { Diagnostic.span = span ~file:"binding.tern" 1 4 1 5;
-            message = Some "binding declared here" };
-          { Diagnostic.span = span 1 4 1 5; message = None } ]
+        [
+          {
+            Diagnostic.span = span ~file:"binding.tern" 1 4 1 5;
+            message = Some "binding declared here";
+          };
+          { Diagnostic.span = span 1 4 1 5; message = None };
+        ]
       ~notes:[ "names are resolved in lexical scope" ]
       (span 1 8 1 9) "unbound value y"
   in
@@ -183,7 +190,8 @@ let%expect_test "secondary spans, optional labels, severities, and notes" =
      = note: names are resolved in lexical scope
     |}]
 
-let%expect_test "multiline spans elide middle lines and honor exclusive line ends" =
+let%expect_test
+    "multiline spans elide middle lines and honor exclusive line ends" =
   let source _ = Some "begin\nmiddle\nend\n" in
   let diagnostic = Diagnostic.make (span 1 2 4 0) "multiline example" in
   print_string (Diagnostic.render ~source diagnostic);
@@ -202,14 +210,15 @@ let%expect_test "multiline spans elide middle lines and honor exclusive line end
 let%expect_test "Unicode display columns, combining characters, and tabs" =
   let line, columns = Diagnostic.display_line "\t\"é界é\" @" in
   print_endline line;
-  print_endline (String.concat "," (Array.to_list (Array.map string_of_int columns)));
-  [%expect
-    {|
+  print_endline
+    (String.concat "," (Array.to_list (Array.map string_of_int columns)));
+  [%expect {|
         "é界é" @
     0,4,5,6,8,9,9,10,11,12
     |}]
 
-let%expect_test "malformed source bytes are safe to render with their lexer diagnostic" =
+let%expect_test
+    "malformed source bytes are safe to render with their lexer diagnostic" =
   let source = "\255" in
   match Lexer.lex ~file:"bytes.tern" source with
   | Ok _ -> assert false
@@ -232,13 +241,17 @@ let%expect_test "terminal control sequences cannot escape source excerpts" =
   print_endline text;
   [%expect {| \u{1b}[31m\u{0} |}]
 
-let%expect_test "missing source, EOF after a newline, and out-of-range source lines" =
+let%expect_test
+    "missing source, EOF after a newline, and out-of-range source lines" =
   print_string
-    (Diagnostic.render ~source:(fun _ -> None)
+    (Diagnostic.render
+       ~source:(fun _ -> None)
        (Diagnostic.make ~severity:Note (span 1 0 1 0) "no source available"));
   let source _ = Some "x\n" in
-  print_string (Diagnostic.render ~source (Diagnostic.make (span 2 0 2 0) "EOF"));
-  print_string (Diagnostic.render ~source (Diagnostic.make (span 3 0 3 0) "missing line"));
+  print_string
+    (Diagnostic.render ~source (Diagnostic.make (span 2 0 2 0) "EOF"));
+  print_string
+    (Diagnostic.render ~source (Diagnostic.make (span 3 0 3 0) "missing line"));
   [%expect
     {|
     note: no source available
@@ -254,7 +267,9 @@ let%expect_test "missing source, EOF after a newline, and out-of-range source li
      = note: source line unavailable
     |}]
 
-let%expect_test "color is explicit for snapshots and automatic emission respects redirection" =
+let%expect_test
+    "color is explicit for snapshots and automatic emission respects \
+     redirection" =
   let diagnostic = Diagnostic.make (span 1 0 1 1) "example" in
   let source _ = Some "x" in
   let plain = Diagnostic.render ~color:false ~source diagnostic in
@@ -265,8 +280,11 @@ let%expect_test "color is explicit for snapshots and automatic emission respects
   Fun.protect
     ~finally:(fun () -> Sys.remove file)
     (fun () ->
-      Out_channel.with_open_bin file (fun channel -> Diagnostic.emit ~channel ~source diagnostic);
+      Out_channel.with_open_bin file (fun channel ->
+          Diagnostic.emit ~channel ~source diagnostic);
       let actual = In_channel.with_open_bin file In_channel.input_all in
       assert (actual = plain));
-  print_endline "plain snapshots; forced color rendering; redirected output stays plain";
-  [%expect {| plain snapshots; forced color rendering; redirected output stays plain |}]
+  print_endline
+    "plain snapshots; forced color rendering; redirected output stays plain";
+  [%expect
+    {| plain snapshots; forced color rendering; redirected output stays plain |}]

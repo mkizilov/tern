@@ -1,9 +1,15 @@
-let name (name : Core.name) = Printf.sprintf "%s#%d" name.value.spelling name.value.id
+let name (name : Core.name) =
+  Printf.sprintf "%s#%d" name.value.spelling name.value.id
 
-let atom = function Anf.Name value -> name value | Literal value -> Pretty.literal value
+let atom = function
+  | Anf.Name value -> name value
+  | Literal value -> Pretty.literal value
+
 let arguments values = String.concat ", " (List.map atom values)
 
-let key = function Anf.Tag tag -> Printf.sprintf "%s#%d" tag.spelling tag.id | Constant value -> Pretty.literal value
+let key = function
+  | Anf.Tag tag -> Printf.sprintf "%s#%d" tag.spelling tag.id
+  | Constant value -> Pretty.literal value
 
 let program (program : Anf.program) =
   let buffer = Buffer.create 512 in
@@ -19,7 +25,12 @@ let program (program : Anf.program) =
     | Let_rec (functions, body) ->
         List.iter
           (fun (definition : Anf.function_binding) ->
-            line indent ("rec " ^ name definition.value.function_name ^ "(" ^ name definition.value.parameter ^ ") {");
+            line indent
+              ("rec "
+              ^ name definition.value.function_name
+              ^ "("
+              ^ name definition.value.parameter
+              ^ ") {");
             expression (indent + 1) definition.value.body;
             line indent "}")
           functions;
@@ -27,12 +38,16 @@ let program (program : Anf.program) =
     | Joins (joins, body) ->
         List.iter
           (fun (join : Anf.join) ->
-            line indent ("join " ^ name join.value.label ^ "(" ^ String.concat ", " (List.map name join.value.parameters) ^ ") {");
+            line indent
+              ("join " ^ name join.value.label ^ "("
+              ^ String.concat ", " (List.map name join.value.parameters)
+              ^ ") {");
             expression (indent + 1) join.value.action;
             line indent "}")
           joins;
         expression indent body
-    | Jump (label, values) -> line indent ("jump " ^ name label ^ "(" ^ arguments values ^ ")")
+    | Jump (label, values) ->
+        line indent ("jump " ^ name label ^ "(" ^ arguments values ^ ")")
     | If (condition, yes, no) ->
         line indent ("if " ^ atom condition ^ " {");
         expression (indent + 1) yes;
@@ -40,7 +55,11 @@ let program (program : Anf.program) =
         expression (indent + 1) no;
         line indent "}"
     | Switch (subject, arms, default) ->
-        let kind = match arms with (Anf.Tag _, _) :: _ -> "switch-tag " | _ -> "switch-literal " in
+        let kind =
+          match arms with
+          | (Anf.Tag _, _) :: _ -> "switch-tag "
+          | _ -> "switch-literal "
+        in
         line indent (kind ^ atom subject ^ " {");
         List.iter
           (fun (tag, body) ->
@@ -56,11 +75,18 @@ let program (program : Anf.program) =
   and right_hand_side indent prefix (source : Anf.rhs) =
     match source.value with
     | Alias value -> line indent (prefix ^ atom value)
-    | Apply (callee, argument) -> line indent (prefix ^ "call " ^ atom callee ^ "(" ^ atom argument ^ ")")
-    | Primitive (operator, values) -> line indent (prefix ^ Core.show_primitive operator.value ^ "(" ^ arguments values ^ ")")
+    | Apply (callee, argument) ->
+        line indent (prefix ^ "call " ^ atom callee ^ "(" ^ atom argument ^ ")")
+    | Primitive (operator, values) ->
+        line indent
+          (prefix
+          ^ Core.show_primitive operator.value
+          ^ "(" ^ arguments values ^ ")")
     | Tuple values -> line indent (prefix ^ "tuple(" ^ arguments values ^ ")")
-    | Constructor constructor -> line indent (prefix ^ "constructor " ^ name constructor)
-    | Field (value, index) -> line indent (prefix ^ "field " ^ atom value ^ "." ^ string_of_int index)
+    | Constructor constructor ->
+        line indent (prefix ^ "constructor " ^ name constructor)
+    | Field (value, index) ->
+        line indent (prefix ^ "field " ^ atom value ^ "." ^ string_of_int index)
     | Payload value -> line indent (prefix ^ "payload " ^ atom value)
     | Lambda (parameter, body) ->
         line indent (prefix ^ "fn(" ^ name parameter ^ ") {");
@@ -71,6 +97,8 @@ let program (program : Anf.program) =
         expression (indent + 1) body;
         line indent "}"
   in
-  List.iter (fun ((binder : Core.name), _) -> line 0 ("builtin " ^ name binder)) program.value.builtins;
+  List.iter
+    (fun ((binder : Core.name), _) -> line 0 ("builtin " ^ name binder))
+    program.value.builtins;
   expression 0 program.value.body;
   Buffer.contents buffer

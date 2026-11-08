@@ -9,9 +9,9 @@ let token_label = function
   | token -> Token.show_kind token
 
 let print_span (span : Ast.span) =
-  Printf.printf "%s:%d:%d-%d:%d bytes=%d-%d" span.file
-    span.start_pos.line span.start_pos.column span.end_pos.line
-    span.end_pos.column span.start_pos.byte_offset span.end_pos.byte_offset
+  Printf.printf "%s:%d:%d-%d:%d bytes=%d-%d" span.file span.start_pos.line
+    span.start_pos.column span.end_pos.line span.end_pos.column
+    span.start_pos.byte_offset span.end_pos.byte_offset
 
 let print_error (error : Lexer.error) =
   assert (error.severity = Diagnostic.Error);
@@ -168,7 +168,8 @@ let%expect_test "comment contents are not strings or tokens" =
     Eof at test.tern:3:4-3:4 bytes=16-16
     |}]
 
-let%expect_test "all string escapes decode; delimiters in strings stay literal" =
+let%expect_test "all string escapes decode; delimiters in strings stay literal"
+    =
   dump {|"\n\r\t\"\\" "(* not a comment *)"|};
   dump ~positions:true {|"a\nb" x|};
   [%expect
@@ -296,7 +297,9 @@ let%expect_test "long lexemes and skipped comments survive Sedlex refills" =
       assert (identifier.value = Token.Identifier name);
       assert (string.value = Token.String name);
       List.iter
-        (fun (token : Token.t) -> print_span token.span; print_newline ())
+        (fun (token : Token.t) ->
+          print_span token.span;
+          print_newline ())
         [ identifier; string; eof ];
       [%expect
         {|
@@ -319,7 +322,9 @@ let%expect_test "the complete example corpus lexes without errors" =
       let path = Filename.concat directory name in
       let source = In_channel.with_open_bin path In_channel.input_all in
       match Lexer.lex ~file:name source with
-      | Error error -> print_error error; assert false
+      | Error error ->
+          print_error error;
+          assert false
       | Ok tokens ->
           assert (List.length tokens > 1);
           assert ((List.hd (List.rev tokens)).value = Token.Eof))

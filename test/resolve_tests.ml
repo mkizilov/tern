@@ -18,7 +18,8 @@ let rec pattern (pat : Core.pattern) =
   | Wildcard -> "_"
   | Bind binder -> name binder
   | Literal_pattern value -> Pretty.literal value
-  | Tuple_pattern fields -> "(" ^ String.concat ", " (List.map pattern fields) ^ ")"
+  | Tuple_pattern fields ->
+      "(" ^ String.concat ", " (List.map pattern fields) ^ ")"
   | Constructor_pattern (constructor, None) -> name constructor
   | Constructor_pattern (constructor, Some payload) ->
       name constructor ^ "(" ^ pattern payload ^ ")"
@@ -28,12 +29,16 @@ let rec expression (expr : Core.expr) =
   | Literal value -> Pretty.literal value
   | Variable variable -> name variable
   | Constructor constructor -> "ctor[" ^ name constructor ^ "]"
-  | Lambda (parameter, body) -> "(fun " ^ name parameter ^ " -> " ^ expression body ^ ")"
-  | Apply (callee, argument) -> "(" ^ expression callee ^ " " ^ expression argument ^ ")"
+  | Lambda (parameter, body) ->
+      "(fun " ^ name parameter ^ " -> " ^ expression body ^ ")"
+  | Apply (callee, argument) ->
+      "(" ^ expression callee ^ " " ^ expression argument ^ ")"
   | Let (pat, rhs, body) ->
-      "(let " ^ pattern pat ^ " = " ^ expression rhs ^ " in " ^ expression body ^ ")"
+      "(let " ^ pattern pat ^ " = " ^ expression rhs ^ " in " ^ expression body
+      ^ ")"
   | Let_rec (bindings, body) ->
-      "(let rec " ^ String.concat " and " (List.map recursive_binding bindings)
+      "(let rec "
+      ^ String.concat " and " (List.map recursive_binding bindings)
       ^ " in " ^ expression body ^ ")"
   | If (condition, yes, no) ->
       "(if " ^ expression condition ^ " then " ^ expression yes ^ " else "
@@ -44,15 +49,23 @@ let rec expression (expr : Core.expr) =
       ^ String.concat " "
           (List.map
              (fun (case : Core.case) ->
-               "| " ^ pattern case.value.case_pattern ^ " -> " ^ expression case.value.case_body)
+               "| "
+               ^ pattern case.value.case_pattern
+               ^ " -> "
+               ^ expression case.value.case_body)
              cases)
       ^ ")"
   | Primitive (primitive, operands) ->
-      "(" ^ Core.show_primitive primitive.value ^ " "
-      ^ String.concat " " (List.map expression operands) ^ ")"
+      "("
+      ^ Core.show_primitive primitive.value
+      ^ " "
+      ^ String.concat " " (List.map expression operands)
+      ^ ")"
 
 and recursive_binding (binding : Core.recursive_binding) =
-  name binding.value.recursive_name ^ " = " ^ expression binding.value.recursive_body
+  name binding.value.recursive_name
+  ^ " = "
+  ^ expression binding.value.recursive_body
 
 let dump source =
   let program = resolve source in
@@ -62,7 +75,8 @@ let dump source =
         Printf.printf "let %s = %s\n" (pattern pat) (expression rhs);
         bindings body
     | Let_rec (group, body) ->
-        Printf.printf "let rec %s\n" (String.concat " and " (List.map recursive_binding group));
+        Printf.printf "let rec %s\n"
+          (String.concat " and " (List.map recursive_binding group));
         bindings body
     | Literal Ast.Unit -> ()
     | _ -> assert false
@@ -76,7 +90,8 @@ let error source =
       assert (diagnostic.severity = Diagnostic.Error);
       print_string
         (Diagnostic.render
-           ~source:(fun file -> if file = "resolve.tern" then Some source else None)
+           ~source:(fun file ->
+             if file = "resolve.tern" then Some source else None)
            diagnostic)
 
 let message source =
@@ -94,11 +109,13 @@ let verify (program : Core.program) =
     name.value.id
   in
   let value_environment =
-    List.fold_left (fun ids (name, _) -> Ids.add (bind name) ids)
+    List.fold_left
+      (fun ids (name, _) -> Ids.add (bind name) ids)
       Ids.empty program.value.builtins
   in
   let type_environment =
-    List.fold_left (fun ids (name, _) -> Ids.add (bind name) ids)
+    List.fold_left
+      (fun ids (name, _) -> Ids.add (bind name) ids)
       Ids.empty program.value.builtin_types
   in
   let constructors = ref Ids.empty in
@@ -108,7 +125,9 @@ let verify (program : Core.program) =
     | Type_constructor (name, arguments) ->
         assert (Ids.mem name.value.id types);
         List.iter (typ parameters types) arguments
-    | Type_arrow (argument, result) -> typ parameters types argument; typ parameters types result
+    | Type_arrow (argument, result) ->
+        typ parameters types argument;
+        typ parameters types result
     | Type_tuple fields -> List.iter (typ parameters types) fields
   in
   ignore
@@ -117,13 +136,16 @@ let verify (program : Core.program) =
          let definition = declaration.value in
          let types = Ids.add (bind definition.type_name) types in
          let parameters =
-           List.fold_left (fun ids name -> Ids.add (bind name) ids)
+           List.fold_left
+             (fun ids name -> Ids.add (bind name) ids)
              Ids.empty definition.type_parameters
          in
          List.iter
            (fun (constructor : Core.constructor_decl) ->
-             constructors := Ids.add (bind constructor.value.constructor_name) !constructors;
-             Option.iter (typ parameters types) constructor.value.constructor_payload)
+             constructors :=
+               Ids.add (bind constructor.value.constructor_name) !constructors;
+             Option.iter (typ parameters types)
+               constructor.value.constructor_payload)
            definition.type_constructors;
          types)
        type_environment program.value.types);
@@ -132,9 +154,9 @@ let verify (program : Core.program) =
     | Wildcard | Literal_pattern _ -> ids
     | Bind name -> Ids.add (bind name) ids
     | Tuple_pattern fields -> List.fold_left pat ids fields
-    | Constructor_pattern (name, payload) ->
+    | Constructor_pattern (name, payload) -> (
         assert (Ids.mem name.value.id !constructors);
-        (match payload with None -> ids | Some payload -> pat ids payload)
+        match payload with None -> ids | Some payload -> pat ids payload)
   in
   let rec expr environment (expression : Core.expr) =
     match expression.value with
@@ -142,7 +164,9 @@ let verify (program : Core.program) =
     | Variable name -> assert (Ids.mem name.value.id environment)
     | Constructor name -> assert (Ids.mem name.value.id !constructors)
     | Lambda (name, body) -> expr (Ids.add (bind name) environment) body
-    | Apply (callee, argument) -> expr environment callee; expr environment argument
+    | Apply (callee, argument) ->
+        expr environment callee;
+        expr environment argument
     | Let (pattern, rhs, body) ->
         expr environment rhs;
         expr (pat environment pattern) body
@@ -161,15 +185,21 @@ let verify (program : Core.program) =
             expr environment binding.value.recursive_body)
           bindings;
         expr environment body
-    | If (condition, yes, no) -> expr environment condition; expr environment yes; expr environment no
+    | If (condition, yes, no) ->
+        expr environment condition;
+        expr environment yes;
+        expr environment no
     | Tuple fields -> List.iter (expr environment) fields
     | Match (subject, cases) ->
         expr environment subject;
         List.iter
-          (fun (case : Core.case) -> expr (pat environment case.value.case_pattern) case.value.case_body)
+          (fun (case : Core.case) ->
+            expr (pat environment case.value.case_pattern) case.value.case_body)
           cases
     | Primitive (operator, operands) ->
-        assert (List.length operands = (match operator.value with Negate -> 1 | _ -> 2));
+        assert (
+          List.length operands
+          = match operator.value with Negate -> 1 | _ -> 2);
         List.iter (expr environment) operands
   in
   expr value_environment program.value.body;
@@ -191,7 +221,8 @@ let%expect_test "shadowing, closures, and nonrecursive right-hand sides" =
     let x#7 = (Add x#6 1)
     |}]
 
-let%expect_test "self recursion, local recursion, and shadowing a recursive name" =
+let%expect_test
+    "self recursion, local recursion, and shadowing a recursive name" =
   dump "let rec f n = if n = 0 then 1 else f (n - 1);;";
   dump "let f = let rec go x = go x in go;;";
   dump "let rec f f = f;;";
@@ -202,7 +233,8 @@ let%expect_test "self recursion, local recursion, and shadowing a recursive name
     let rec f#6 = (fun f#7 -> f#7)
     |}]
 
-let%expect_test "tuple bindings read the outer scope before introducing all new names" =
+let%expect_test
+    "tuple bindings read the outer scope before introducing all new names" =
   dump "let x = 1;; let (x, y) = (x, 2);; let z = x + y;;";
   [%expect
     {|
@@ -219,7 +251,8 @@ let%expect_test "mutual names are all allocated before either function body" =
     let call#10 = (f#6 1)
     |}]
 
-let%expect_test "multi-argument and pattern functions lower to unary binder lambdas" =
+let%expect_test
+    "multi-argument and pattern functions lower to unary binder lambdas" =
   dump "let f x y = x;;";
   dump "let f (x, y) () _ = x;;";
   [%expect
@@ -228,7 +261,8 @@ let%expect_test "multi-argument and pattern functions lower to unary binder lamb
     let f#6 = (fun $arg#7 -> (let (x#8, y#9) = $arg#7 in (fun $arg#10 -> (let () = $arg#10 in (fun $arg#11 -> x#8)))))
     |}]
 
-let%expect_test "sequencing retains its unit constraint and booleans short-circuit" =
+let%expect_test
+    "sequencing retains its unit constraint and booleans short-circuit" =
   dump {|let x = print_int 1; print_string "x";;|};
   dump "let f x = x;; let a = false && f true;; let b = true || f false;;";
   [%expect
@@ -242,8 +276,12 @@ let%expect_test "sequencing retains its unit constraint and booleans short-circu
 let%expect_test "prelude identities are stable and built-ins can be shadowed" =
   dump "let print_int = print_int;; let x = print_int;;";
   let program = resolve "" in
-  print_endline (String.concat ", " (List.map (fun (binder, _) -> name binder) program.value.builtins));
-  print_endline (String.concat ", " (List.map (fun (binder, _) -> name binder) program.value.builtin_types));
+  print_endline
+    (String.concat ", "
+       (List.map (fun (binder, _) -> name binder) program.value.builtins));
+  print_endline
+    (String.concat ", "
+       (List.map (fun (binder, _) -> name binder) program.value.builtin_types));
   [%expect
     {|
     let print_int#6 = print_int#0
@@ -252,17 +290,22 @@ let%expect_test "prelude identities are stable and built-ins can be shadowed" =
     int#2, bool#3, string#4, unit#5
     |}]
 
-let%expect_test "type parameters, first-class constructors, and match arms have IDs" =
+let%expect_test
+    "type parameters, first-class constructors, and match arms have IDs" =
   let source =
-    "type 'a option = None | Some of 'a;; let f = Some;; let g x = match x with Some y -> y | None -> 0;;"
+    "type 'a option = None | Some of 'a;; let f = Some;; let g x = match x \
+     with Some y -> y | None -> 0;;"
   in
   let program = resolve source in
   (match program.value.types with
   | [ definition ] ->
-      Printf.printf "type %s parameters=%s constructors=%s\n" (name definition.value.type_name)
+      Printf.printf "type %s parameters=%s constructors=%s\n"
+        (name definition.value.type_name)
         (String.concat "," (List.map name definition.value.type_parameters))
-        (String.concat "," (List.map (fun (c : Core.constructor_decl) -> name c.value.constructor_name)
-                               definition.value.type_constructors))
+        (String.concat ","
+           (List.map
+              (fun (c : Core.constructor_decl) -> name c.value.constructor_name)
+              definition.value.type_constructors))
   | _ -> assert false);
   dump source;
   ignore (verify program);
@@ -273,18 +316,36 @@ let%expect_test "type parameters, first-class constructors, and match arms have 
     let g#11 = (fun x#12 -> (match x#12 with | Some#9(y#13) -> y#13 | None#8 -> 0))
     |}]
 
-let%expect_test "recursive payload types point back to their own nominal type ID" =
+let%expect_test
+    "recursive payload types point back to their own nominal type ID" =
   let program = resolve "type 'a list = Nil | Cons of ('a * 'a list);;" in
   ignore (verify program);
   (match program.value.types with
-  | [ { value = { type_name; type_parameters = [ parameter ]; type_constructors = [ _; cons ] }; _ } ] ->
-      (match cons.value.constructor_payload with
-      | Some { value = Type_tuple [ first; { value = Type_constructor (self, [ argument ]); _ } ]; _ } ->
+  | [
+   {
+     value =
+       {
+         type_name;
+         type_parameters = [ parameter ];
+         type_constructors = [ _; cons ];
+       };
+     _;
+   };
+  ] -> (
+      match cons.value.constructor_payload with
+      | Some
+          {
+            value =
+              Type_tuple
+                [ first; { value = Type_constructor (self, [ argument ]); _ } ];
+            _;
+          } ->
           assert (self.value.id = type_name.value.id);
           List.iter
             (fun (typ : Core.type_expr) ->
               match typ.value with
-              | Type_variable name -> assert (name.value.id = parameter.value.id)
+              | Type_variable name ->
+                  assert (name.value.id = parameter.value.id)
               | _ -> assert false)
             [ first; argument ];
           print_endline "recursive type and parameter identities preserved"
@@ -292,13 +353,24 @@ let%expect_test "recursive payload types point back to their own nominal type ID
   | _ -> assert false);
   [%expect {| recursive type and parameter identities preserved |}]
 
-let%expect_test "value and type namespaces are separate even for primitive type spellings" =
+let%expect_test
+    "value and type namespaces are separate even for primitive type spellings" =
   let program = resolve "let int = 1;; type box = Box of int;;" in
   ignore (verify program);
-  (match program.value.body.value, program.value.types with
-  | Let ({ value = Bind value; _ }, _, _), [ definition ] ->
-      (match definition.value.type_constructors with
-      | [ { value = { constructor_payload = Some { value = Type_constructor (typ, []); _ }; _ }; _ } ] ->
+  (match (program.value.body.value, program.value.types) with
+  | Let ({ value = Bind value; _ }, _, _), [ definition ] -> (
+      match definition.value.type_constructors with
+      | [
+       {
+         value =
+           {
+             constructor_payload =
+               Some { value = Type_constructor (typ, []); _ };
+             _;
+           };
+         _;
+       };
+      ] ->
           Printf.printf "value %s; payload type %s\n" (name value) (name typ)
       | _ -> assert false)
   | _ -> assert false);
@@ -371,14 +443,19 @@ let%expect_test "duplicate constructors retain both declaration locations" =
       |          - previous constructor name declaration
     |}]
 
-let%expect_test "names do not leak into nonrecursive RHSs, other arms, or earlier declarations" =
+let%expect_test
+    "names do not leak into nonrecursive RHSs, other arms, or earlier \
+     declarations" =
   List.iter message
-    [ "let x = x;;";
+    [
+      "let x = x;;";
       "let f x = g x;; let g y = y;;";
       "let x = C;; type t = C;;";
       "let f x = match x with Missing -> x;;";
-      "type 'a option = None | Some of 'a;; let f x = match x with Some y -> y | None -> y;;";
-      "let x = false && missing;;" ];
+      "type 'a option = None | Some of 'a;; let f x = match x with Some y -> y \
+       | None -> y;;";
+      "let x = false && missing;;";
+    ];
   [%expect
     {|
     unbound variable `x`
@@ -389,14 +466,18 @@ let%expect_test "names do not leak into nonrecursive RHSs, other arms, or earlie
     unbound variable `missing`
     |}]
 
-let%expect_test "duplicate binders in nested patterns and recursive groups are errors" =
+let%expect_test
+    "duplicate binders in nested patterns and recursive groups are errors" =
   List.iter message
-    [ "let f (x, (y, x)) = y;;";
-      "type 'a option = None | Some of 'a;; let f x = match x with Some (a, a) -> a | None -> 0;;";
+    [
+      "let f (x, (y, x)) = y;;";
+      "type 'a option = None | Some of 'a;; let f x = match x with Some (a, a) \
+       -> a | None -> 0;;";
       "let rec f x = x and f y = y;;";
       "type t = A | A;;";
       "type ('a, 'a) t = C;;";
-      "type int = C;;" ];
+      "type int = C;;";
+    ];
   [%expect
     {|
     duplicate pattern variable `x`
@@ -409,12 +490,16 @@ let%expect_test "duplicate binders in nested patterns and recursive groups are e
 
 let%expect_test "type references and constructor pattern arities are checked" =
   List.iter message
-    [ "type t = T of missing;;";
+    [
+      "type t = T of missing;;";
       "type 'a t = T of 'b;;";
       "type t = T of later;; type later = L;;";
       "type 'a option = None | Some of 'a;; type t = T of (int, bool) option;;";
-      "type 'a option = None | Some of 'a;; let f x = match x with Some -> 0 | None -> 1;;";
-      "type 'a option = None | Some of 'a;; let f x = match x with None _ -> 0 | Some _ -> 1;;" ];
+      "type 'a option = None | Some of 'a;; let f x = match x with Some -> 0 | \
+       None -> 1;;";
+      "type 'a option = None | Some of 'a;; let f x = match x with None _ -> 0 \
+       | Some _ -> 1;;";
+    ];
   [%expect
     {|
     unbound type `missing`
@@ -433,7 +518,8 @@ let%expect_test "separate lambda parameters and match arms may shadow names" =
     let g#9 = (fun x#10 -> (match x#10 with | y#11 -> y#11 | y#12 -> y#12))
     |}]
 
-let%expect_test "failed and repeated invocations never leak the identity counter" =
+let%expect_test
+    "failed and repeated invocations never leak the identity counter" =
   let source = "let f (x, y) = x + y;;" in
   let first = resolve source in
   (match Resolve.program (parse "let x = missing;;") with
@@ -442,11 +528,14 @@ let%expect_test "failed and repeated invocations never leak the identity counter
   let second = resolve source in
   assert (Core.equal_program first second);
   assert (String.length (Core.show_program first) > 0);
-  Printf.printf "deterministic Core; %d globally unique binders; derived printers available\n"
+  Printf.printf
+    "deterministic Core; %d globally unique binders; derived printers available\n"
     (verify first);
-  [%expect {| deterministic Core; 10 globally unique binders; derived printers available |}]
+  [%expect
+    {| deterministic Core; 10 globally unique binders; derived printers available |}]
 
-let%expect_test "all examples resolve, retain scopes, and have unique bound identities" =
+let%expect_test
+    "all examples resolve, retain scopes, and have unique bound identities" =
   let directory = "../examples" in
   let files =
     Sys.readdir directory |> Array.to_list
@@ -456,7 +545,11 @@ let%expect_test "all examples resolve, retain scopes, and have unique bound iden
   assert (List.length files = 15);
   List.iter
     (fun file ->
-      let source = In_channel.with_open_bin (Filename.concat directory file) In_channel.input_all in
+      let source =
+        In_channel.with_open_bin
+          (Filename.concat directory file)
+          In_channel.input_all
+      in
       let parsed = parse source in
       let resolved = resolve source in
       ignore (verify resolved);

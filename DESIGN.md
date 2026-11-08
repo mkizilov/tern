@@ -11,7 +11,8 @@ adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
 `ternc check` command. Prompt 7 adds typed match usefulness/exhaustiveness warnings.
 Prompt 8 adds the checked-Core reference interpreter and `run --interp` command.
 Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
-`dump-ir`/`run --ir`. There is no WebAssembly backend yet.
+`dump-ir`/`run --ir`. Prompt 10 adds explicit closure conversion and converted
+execution. There is no WebAssembly backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -107,11 +108,13 @@ Setup supports ARM64/x86_64 macOS/Linux with Bash, a C toolchain, make, tar, cur
 SHA-256 tooling available read-only. It downloads opam **2.6.1** and wasm-tools
 **1.263.0** to `.tools/bin`, verifying platform-specific SHA-256 digests from
 their GitHub releases. It initializes the project-local opam root without shell
-profile changes, runs `opam switch create . --empty`, installs OCaml **5.5.2**
+profile changes, runs `opam switch create . --empty`, installs OCaml **5.4.1**
 and Dune, regenerates opam metadata, then runs
 `opam install . --deps-only --with-test`. Package builds/downloads use at most two
-workers. Opam sandbox defaults remain enabled; system dependency installation
-is disabled (`--no-depexts`). No Homebrew, sudo, services, or global switch is used.
+workers. System dependency installation is disabled (`--no-depexts`). Opam uses
+its normal initialization checks; inside this outer macOS sandbox its nested
+sandbox was unavailable and opam disabled those hooks in the project-local root.
+The outer boundary was not changed. No Homebrew, sudo, services, or global switch is used.
 Other dependencies are resolved from constraints, not a fully locked repository.
 
 The environment script preserves supplied HOME/TMPDIR/cache paths and refuses
@@ -120,20 +123,24 @@ non-project state paths. Outside the supplied harness, explicitly set HOME to
 before setup. It never resets a supplied project-local value. Toolchains live
 in `_opam/`; binaries in `.tools/bin`; caches and extraction directories remain
 under `.agent-local/`. Extraction directories are removed on success or failure.
+On the supplied macOS command-line toolchain, SDKROOT defaults to the existing
+read-only SDK under DEVELOPER_DIR only when SDKROOT is unset; this avoids xcrun
+trying to write a host cache. No SDK is installed or modified outside the project.
 Re-running setup reuses matching tool versions and the switch. `check.sh`
 selects that switch explicitly and runs, fail-fast:
 
 ```sh
-opam exec --switch="$PWD" -- dune build -j 2
-opam exec --switch="$PWD" -- dune test -j 2
-opam exec --switch="$PWD" -- dune fmt -j 2
+opam exec --switch="$PWD" -- dune build --root . -j 2
+opam exec --switch="$PWD" -- dune test --root . -j 2
+opam exec --switch="$PWD" -- dune fmt --root . -j 2
 ```
 
 For direct commands, select the local environment in the current shell only
 (`export PATH="$PWD/.tools/bin:$PATH"` and
 `eval "$(opam env --switch="$PWD" --set-switch)"`), then use `dune build`,
 `dune test`, or `dune fmt`. All three must pass before a future task is done.
-`dune fmt` checks formatting; `dune build @fmt --auto-promote` applies it.
+`dune fmt` can promote formatting corrections; rerun the gate afterward.
+`dune build @fmt --auto-promote` also applies formatting.
 Commit generated `ternc.opam` updates, never `_build/`, `_opam/`, or caches.
 
 Every phase requires `ppx_expect` success and error tests. Add QCheck properties
@@ -141,6 +148,11 @@ for unification, substitution, and IR invariants where useful. Once executable,
 all fifteen examples must match `.out` byte-for-byte in the interpreter and,
 later, a real Wasm runtime. Differential checks must include effect ordering,
 closure capture, mutual recursion, nested patterns, and integer edges.
+
+The limitation reports below describe the historical state at each numbered
+turn. In turn 10 the repaired environment completed setup and the entire native
+gate, including all earlier phase suites and example execution. Current results
+are recorded at the end of the closure-conversion section.
 
 ### Prompt 1 environment limitation
 
@@ -885,3 +897,117 @@ AFT still lacks OCaml/Python language servers and misclassifies Cram as Perl;
 call-graph inspection is unindexed for these OCaml files, so indexed text search
 was used. No global dependency installation, boundary bypass, service, hardware,
 or host socket was involved.
+
+## Closure conversion and closed-code execution (Prompt 10)
+
+`Free_vars` computes identity-keyed free-variable maps over ANF. It removes let
+binders from continuations, lambda parameters from bodies, whole recursive groups
+from their shared scope, and join parameters from actions. Jump labels and
+constructor-tag metadata are not values. Nested lambda/action uses contribute
+their outer dependencies, so an enclosing closure retains values needed to
+construct another closure later. Captures are ordered by numeric source ID for
+deterministic environment layouts.
+
+`Closure_convert.program` creates a `Closed.program` with a dense, stable,
+zero-based function table plus entry block. The closed expression language has
+no nested lambda or let-rec function forms. A function definition takes an
+explicit environment name and unary source parameter. Capture loads get fresh
+local IDs, with source references substituted throughout the body, including
+local join actions and nested allocations. A lifted body has no implicit access
+to the entry/caller's value environment.
+
+Nonrecursive function values allocate their capture environment and a closure
+record `(table index, environment)`. For recursive groups, indices are reserved
+for every member before converting any body. A shared layout holds the union of
+external captures followed by member closure slots. Conversion allocates the
+environment, creates all member records pointing at it, initializes every slot,
+then enters the continuation. Each function loads only its actual free variables
+from that common layout; self/peer closure values remain first class. The source
+case/function/parameter IDs remain unique, while generated environment, load,
+call-environment, and initialization IDs start above the ANF range.
+
+Known code indices propagate through lexical function definitions, recursive
+groups, and ordinary aliases. At a known call, the callee's environment is
+extracted explicitly and `Direct_call` names the constant table index; it does
+not dynamically dispatch through the closure's code field. This applies to
+known top-level functions and also lexically known local functions. Unknown
+higher-order parameters or results use `Closure_call`. This is conservative
+lexical knowledge, not whole-program control-flow analysis through arbitrary
+tuples, variants, or conditionals. Closure allocation elision is not attempted.
+
+Output builtins and payload constructors receive closed wrapper functions too.
+The entry's builtin bindings are uniform closure records, not hidden host lexical
+closures. Nullary constructors remain variant data; payload wrappers construct
+their tagged result. Wrapper output uses the incoming source call span, keeping
+I/O failures located at the user's application rather than a virtual prelude
+definition. Primitive arithmetic and byte output still use shared `Runtime`.
+
+The runtime now has compiler-internal environment arrays and closure records.
+Uninitialized recursive slots are inaccessible until initialization completes;
+they are not source-language references. The source remains immutable and HM
+generalization is unchanged. AST and original ANF closures retain their previous
+representation for independent reference runs. Converted invocation creates a
+fresh value map with exactly the explicit environment/argument before executing
+capture loads. No lexical map is stored in converted closure records. Recursive
+array/record cycles are managed by OCaml's collector.
+
+`Ir_interp.closed` runs the separate closed-IR walker. The public `run --ir`
+pipeline now lowers then converts; default `dump-ir` still prints ANF, while
+`dump-ir --closed` prints table functions, captures/layouts, records, environment
+operations, and direct/closure calls. Both representations retain original
+locations, joins, branch order, and failure leaves. No dependency was added and
+no Wasm table/heap layout is emitted yet.
+
+### Verification and current limitations
+
+Native expectations snapshot full nested-closure and recursive conversion,
+including builtin wrappers and recursive initialization. Other cases check
+free-variable scope, direct top-level aliases versus unknown higher-order calls,
+multi-level capture/shadowing, escaping mutual recursion, invocation isolation,
+joined case captures, first-class constructors/builtins, and error spans/partial
+stdout. A closed-IR invariant walk starts each function with only its environment
+and parameter, checks all references are scoped, field indices fit layouts,
+labels/jump arities are valid, all binder IDs are unique, and code indices form
+a dense table. The corpus requires AST = ANF = closed IR = every `.out` byte
+string. The existing public-command corpus now exercises converted execution;
+Cram also invokes the optional closed dump.
+
+After the orchestrator repaired DNS, the mandatory shell probe again printed
+`SANDBOX_ACTIVE`. Local setup downloaded and verified its pinned tools, then
+exposed two host/tooling issues: nested sandbox-exec was unavailable, and cc
+could not locate libSystem without SDKROOT. Opam's local initialization disabled
+its own unusable hooks; the unchanged outer sandbox still protects the process.
+Selecting the existing command-line-tools SDK read-only fixed linking without
+installing a system SDK or changing user settings.
+
+The initial 5.5.2 compiler bootstrap succeeded, but project dependency solving
+selected OCaml 5.4.1. Setup now explicitly selects that verified OCaml 5 version
+and rejects an unexpected final compiler version rather than silently accepting
+a solver change. Dune 3.24.2, ocamlformat 0.29.0, and wasm-tools 1.263.0 are
+installed locally. Repeating `scripts/setup.sh` succeeded without rebuilding.
+
+The first native build exposed constructor qualification/record inference errors
+in the ANF and converted walkers and a location-record initialization in parsing.
+These were fixed without changing behavior or suppressing diagnostics. Dune's
+read-only source copies also revealed that infrastructure tests must chmod their
+owned mock directory/manifest before rewriting fixtures. Structural contracts
+now ignore whitespace where formatting may wrap a statement, while retaining
+the same required tokens and semantics. Explicit Dune roots avoid probing the
+denied parent directory. The pinned formatter promoted previously unformatted
+OCaml/Dune sources from earlier turns; these mechanical changes were required
+for the complete gate and were not a redesign of those phases.
+
+`scripts/check.sh` now passes: native build, all phase expectations and Cram
+tests, the 25 Python infrastructure/static contracts, and formatting. A forced
+`dune runtest test --force --root . -j 2` also passed. This includes the full
+nested/recursive converted snapshots, closed-scope checks, and actual AST = ANF =
+closed IR = golden bytes for all 15 examples. The real `run --ir` CLI corpus
+and `dump-ir --closed` checks passed too. No test or golden output was weakened
+to obtain these results.
+
+Remaining limitations: no Wasm backend or performance benchmark is part of this
+turn. Opam warns that package-publication metadata (maintainer/authors/license/
+homepage/bug reports) is incomplete; the later MIT/publication task owns that
+work. AFT still lacks ocamllsp and does not index these call graphs; native OCaml
+builds/tests are the authority. No outer sandbox boundary was bypassed, no host
+service was contacted, and no global tools/settings were changed.

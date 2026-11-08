@@ -8,8 +8,7 @@ type error_kind =
   | Invalid_utf8
 [@@deriving show { with_path = false }]
 
-type error = Diagnostic.t
-[@@deriving show { with_path = false }]
+type error = Diagnostic.t [@@deriving show { with_path = false }]
 
 exception Error = Diagnostic.Raised
 
@@ -19,17 +18,20 @@ let fail kind span =
   let message, notes =
     match kind with
     | Unterminated_string ->
-        "unterminated string", [ "close the string with a double quote" ]
+        ("unterminated string", [ "close the string with a double quote" ])
     | Unterminated_comment ->
-        "unterminated comment", [ "close every nested comment with `*)`" ]
+        ("unterminated comment", [ "close every nested comment with `*)`" ])
     | Invalid_escape escape ->
-        Printf.sprintf "invalid escape %S" escape,
-        [ "valid escapes are \\n, \\r, \\t, \\\", and \\\\" ]
-    | Control_character code -> Printf.sprintf "control character U+%04X" code, []
-    | Invalid_character character -> Printf.sprintf "invalid character %S" character, []
+        ( Printf.sprintf "invalid escape %S" escape,
+          [ "valid escapes are \\n, \\r, \\t, \\\", and \\\\" ] )
+    | Control_character code ->
+        (Printf.sprintf "control character U+%04X" code, [])
+    | Invalid_character character ->
+        (Printf.sprintf "invalid character %S" character, [])
     | Integer_out_of_range ->
-        "integer out of range", [ "Tern integers range from -2147483648 to 2147483647" ]
-    | Invalid_utf8 -> "invalid UTF-8", [ "source files must be valid UTF-8" ]
+        ( "integer out of range",
+          [ "Tern integers range from -2147483648 to 2147483647" ] )
+    | Invalid_utf8 -> ("invalid UTF-8", [ "source files must be valid UTF-8" ])
   in
   Diagnostic.fail ~notes span message
 
@@ -64,13 +66,17 @@ let span lexbuf =
   let first, last = Sedlexing.lexing_positions lexbuf in
   let first_byte, last_byte = Sedlexing.lexing_bytes_positions lexbuf in
   let position (p : Lexing.position) (byte : Lexing.position) : Ast.position =
-    { line = p.pos_lnum;
+    {
+      line = p.pos_lnum;
       column = p.pos_cnum - p.pos_bol;
-      byte_offset = byte.pos_cnum }
+      byte_offset = byte.pos_cnum;
+    }
   in
-  { Ast.file = first.pos_fname;
+  {
+    Ast.file = first.pos_fname;
     start_pos = position first first_byte;
-    end_pos = position last last_byte }
+    end_pos = position last last_byte;
+  }
 
 let emit lexbuf value = { Ast.value; span = span lexbuf }
 
@@ -96,13 +102,16 @@ let identifier = function
 let integer lexbuf =
   let digits = Sedlexing.Utf8.lexeme lexbuf in
   let rec first_nonzero i =
-    if i < String.length digits - 1 && digits.[i] = '0' then first_nonzero (i + 1)
+    if i < String.length digits - 1 && digits.[i] = '0' then
+      first_nonzero (i + 1)
     else i
   in
   let first = first_nonzero 0 in
   let magnitude = String.sub digits first (String.length digits - first) in
-  if String.length magnitude > 10
-     || (String.length magnitude = 10 && String.compare magnitude "2147483648" > 0)
+  if
+    String.length magnitude > 10
+    || String.length magnitude = 10
+       && String.compare magnitude "2147483648" > 0
   then fail Integer_out_of_range (span lexbuf);
   (* The parser needs this extra magnitude for the literal -2147483648. *)
   emit lexbuf (Token.Integer (Int64.of_string magnitude))
@@ -127,8 +136,10 @@ let rec string_literal lexbuf opening buffer =
   match%sedlex lexbuf with
   | '"' ->
       let ending = span lexbuf in
-      { Ast.value = Token.String (Buffer.contents buffer);
-        span = { opening with end_pos = ending.end_pos } }
+      {
+        Ast.value = Token.String (Buffer.contents buffer);
+        span = { opening with end_pos = ending.end_pos };
+      }
   | "\\n" ->
       Buffer.add_char buffer '\n';
       string_literal lexbuf opening buffer
@@ -164,7 +175,8 @@ and escape lexbuf opening slash =
       if Uchar.to_int (Sedlexing.lexeme_char lexbuf 0) = 13 then
         Sedlexing.new_line lexbuf;
       let ending = span lexbuf in
-      fail (Invalid_escape ("\\" ^ Sedlexing.Utf8.lexeme lexbuf))
+      fail
+        (Invalid_escape ("\\" ^ Sedlexing.Utf8.lexeme lexbuf))
         { slash with end_pos = ending.end_pos }
   | _ -> assert false
 
@@ -185,8 +197,9 @@ let rec next lexer =
       emit lexbuf (Token.Constructor (Sedlexing.Utf8.lexeme lexbuf))
   | '\'', lower_start, Star ident_rest ->
       let name = Sedlexing.Utf8.lexeme lexbuf in
-      emit lexbuf (Token.Type_variable (String.sub name 1 (String.length name - 1)))
-  | Plus ('0' .. '9') -> integer lexbuf
+      emit lexbuf
+        (Token.Type_variable (String.sub name 1 (String.length name - 1)))
+  | Plus '0' .. '9' -> integer lexbuf
   | '"' -> string_literal lexbuf (span lexbuf) (Buffer.create 32)
   | '(' -> emit lexbuf Token.Lparen
   | ')' -> emit lexbuf Token.Rparen
