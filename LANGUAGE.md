@@ -184,13 +184,21 @@ let describe xs =
 ```
 
 Non-exhaustive matches are accepted with a warning; reaching an uncovered case
-is a runtime error. Redundant arms should warn. Match errors carry source
-locations; they must never become unchecked memory access in compiled code.
+is a runtime error. Redundant arms produce an unreachable-case warning. Match
+errors carry source locations; they must never become unchecked memory access
+in compiled code.
 Parenthesize nested `match` expressions in arm bodies to make arm boundaries
 explicit; without parentheses, an arm belongs to the innermost open `match`.
 Constructor payload patterns are atomic: parenthesize a payload that is itself
 a constructor application (`Some (Some x)`). Tuple payloads already use
 parentheses. There are no unparenthesized comma expressions or trailing commas.
+
+Warnings are computed on well-typed matches and do not change whether checking
+succeeds. Non-exhaustive warnings show an unmatched value shape; wildcard holes
+stand for arbitrary payloads. Unreachable cases are checked against all earlier
+cases jointly, not merely for textual duplication. Unreachable bodies are still
+name-resolved and type-checked. The baseline checker follows Maranget's
+non-empty-type model, without a separate analysis of uninhabited recursive types.
 
 ## Static typing
 

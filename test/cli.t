@@ -29,3 +29,23 @@ Help does not require an input file.
 
   $ ternc --help
   Usage: ternc check [--types] FILE.tern
+
+Pattern warnings are non-fatal and coexist with a successful type report.
+
+  $ cat > partial.tern <<'TERN'
+  > let f x =
+  >   match x with
+  >   | true -> 1;;
+  > TERN
+  $ ternc check partial.tern --types > partial.types 2> partial.warnings
+  $ cat partial.types
+  val f : bool -> int
+  $ cat partial.warnings
+  warning: non-exhaustive pattern match
+   --> partial.tern:2:3
+    |
+  2 |   match x with
+    |   ^^^^^^^^^^^^
+  3 |   | true -> 1;;
+    | ^^^^^^^^^^^^^
+   = note: example of an unmatched value: false

@@ -21,8 +21,9 @@ Extend this file with the project's language-specific architecture and verificat
 
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
   The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
-  source printer, Core/resolver, and HM inference live in `lib/`. `bin/ternc.ml`
-  implements checking; interpretation and WebAssembly phases are not implemented.
+  source printer, Core/resolver, HM inference, and typed match coverage live in
+  `lib/`. `bin/ternc.ml` implements checking; interpretation and WebAssembly
+  phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -46,6 +47,12 @@ Extend this file with the project's language-specific architecture and verificat
   diagnostic. `Ty` uses mutable linked variables, occurs checks with level
   lowering, and level-based generalization. Never generalize a variable reachable
   from an outer level or a recursive member before checking its entire group.
+- `Infer.result.warnings` carries non-fatal match diagnostics. Collect match
+  subject types during inference, but run `Coverage.check` only after the whole
+  program type-checks. Coverage must not unify, instantiate, or generalize types.
+- Match usefulness is computed against the matrix of all preceding cases,
+  including their column correlations. Preserve witness reconstruction and the
+  distinction between a missing case warning and an unreachable case warning.
 - Run `dune exec ternc -- check file.tern --types` to check and print top-level
   binding types. `Check.source` is the reusable parse → resolve → infer API.
   Formatting types must use `Ty.show`/`Ty.show_pair`, not internal variable IDs.

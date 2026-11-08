@@ -8,7 +8,8 @@ contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
 the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
 Prompt 4 adds unified, rendered diagnostics and parser-state messages. Prompt 5
 adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
-`ternc check` command. There is no interpreter or WebAssembly backend yet.
+`ternc check` command. Prompt 7 adds typed match usefulness/exhaustiveness warnings.
+There is no interpreter or WebAssembly backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -585,3 +586,103 @@ new OCaml files unindexed for call graphs. It classifies the Cram `.t` fixture
 as Perl, reporting unsupported Perl analysis and tree-sitter parse errors; these
 are not a native Cram runner result. Native Cram validation remains pending.
 No sandbox bypass or alternate remote execution was used.
+
+## Typed variants and pattern usefulness (Prompt 7)
+
+Parametric variant/constructor typing reuses the HM pass introduced in Prompt 6:
+each constructor has a scheme quantifying its declaration's parameters, payload
+patterns constrain those instances, and result types keep their nominal type ID.
+Prompt 7 adds dedicated variant typing/library tests and the anomaly checker in
+`Coverage`, based on Maranget's
+[Warnings for pattern matching, section 3](https://pauillac.inria.fr/~maranget/papers/warn/warn004.html).
+The analysis implements the usefulness predicate U and carries a witness vector
+through the same recursion. It neither compiles match decisions nor executes code.
+
+### Typed signatures and matrices
+
+Inference records each match's subject type, original cases, and span. Only after
+the entire Core program has successfully unified and generalized does it call
+`Coverage.check`. This prevents warnings for ill-typed files and lets the checker
+observe final type constraints, including nominal arguments. Coverage only reads
+types via `Ty.repr`; it never creates metavariables, instantiates schemes,
+generalizes, or unifies. Link compression does not change any inferred type.
+
+The catalog maps nominal type IDs to their resolved declarations and primitive
+type IDs to their builtin kinds, not to spellings. Constructor payload types are
+substituted using the subject's actual type arguments. A constructor has zero
+or one argument (a tuple payload remains one argument until its own tuple column
+is specialized). Tuples have one constructor of their fixed arity, booleans have
+two nullary constructors, and unit has one. Integer and string literals use open
+columns with fresh scalar witnesses; functions and unconstrained type variables
+can only have wildcard/binding patterns after type checking.
+
+Pattern names are erased into wildcards. Other patterns become constructor,
+tuple, or literal heads plus child vectors. For a constructed query, specialization
+keeps matching heads, drops incompatible rows, and expands wildcard rows with
+wildcard arguments. For a wildcard query with a complete observed signature,
+usefulness is searched under every constructor. For an incomplete signature,
+only the default matrix (rows whose first column is wildcard) needs checking.
+Witness reconstruction reassembles constructor arguments and trailing columns;
+an incomplete signature chooses an absent constructor or unused literal. These
+are the U equations, not pairwise subsumption or a list of special-case examples.
+
+Case i is redundant when U(P-before-i, case-i) has no witness. Exhaustiveness
+queries U(P, wildcard) after all cases. Matrices denote unions, so prefix rows
+are stored in reverse order without changing these queries; the original Core
+case order is untouched. A universally wildcard row is an immediate coverage
+shortcut. Constructor signatures are unfolded only as demanded by finite pattern
+syntax, so ordinary recursive list/tree types need no arbitrary depth bound.
+
+### Warning API and witnesses
+
+`Infer.result.warnings` contains `Diagnostic.Warning` values ordered by primary
+source position. A non-exhaustive match's primary span is the match expression,
+with a note such as `example of an unmatched value: Some None`. A redundant case
+points at its own pattern and explains that earlier cases cover it; the covering
+set can be a union with no individually subsuming row. Unreachable case bodies
+are still resolved and typed. Existing type errors remain fatal and prevent any
+warning/type report from escaping a failed check.
+
+Witnesses are Tern pattern-shaped descriptions. They use the existing source
+literal printer, fresh 32-bit integer/string literals when needed, and `_` for
+arbitrary or unconstrained payloads. A missing list constructor may therefore be
+shown as `Cons _`, while an inner list gap can be `Cons (1, Nil)`. The analysis
+uses the paper's non-empty-type axiom: it does not separately prove recursive
+payload types uninhabited, so those pathological families can produce conservative
+warnings. It also does not handle guards, aliases, GADTs, or or-patterns, none of
+which are in Tern's syntax. Integer literal columns are treated as open rather
+than attempting to enumerate every machine integer. Worst-case pattern matrices
+can be exponential; no performance benchmark is claimed for this turn.
+
+The CLI emits warnings on stderr while retaining status 0 and any requested
+successful type report on stdout. With no warnings and no `--types`, success is
+still silent. Warnings do not alter principal schemes or remove Core cases.
+No new dependencies or options were added.
+
+### Verification and environment limits
+
+`test/coverage_tests.ml` covers nested options/lists/tuples, missing constructors
+and payload literals, wildcard/binding subsumption, overlapping useful cases,
+redundancy from unions, primitive domains, multiple type parameters, warning
+spans/order, fatal typing errors in redundant cases, recursive signatures, and
+the option/list libraries. It asserts that all 15 examples have no match warnings.
+A native finite-product property checks all 512 subsets of nine boolean-pair
+patterns against nine queries (4,608 queries), comparing usefulness and every
+witness instance with explicit value enumeration. Cram checks warning stderr,
+non-fatal status, and simultaneous `--types` output.
+
+The local setup retry again exited 6 resolving `github.com`; the compiler switch
+remains absent and `scripts/check.sh` rejected the missing toolchain. Native
+OCaml compilation, expectations/properties, library/corpus checks, CLI Cram
+execution, and formatting remain **unverified**. No expected snapshot is claimed
+as observed compiler output. AFT also lacks OCaml/Python language servers, and its
+call graph does not index these OCaml files; the existing Cram-as-Perl tooling
+limitation remains.
+
+The available standalone suite passed 19 infrastructure/static-contract tests,
+including typed/read-only coverage wiring. Separately, a temporary independent
+Python model passed 4,608 boolean-product plus 1,056 option/nested-option
+usefulness and witness checks against explicit enumeration. This validates the
+modeled recursion, not execution of the OCaml implementation or its substitution
+code. The scratch model is removed before handoff. No dependencies were installed
+outside the repository and no sandbox boundary was bypassed.

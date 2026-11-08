@@ -28,6 +28,12 @@ let run arguments =
       | Error diagnostic ->
           report (fun requested -> if requested = file then Some source else None) diagnostic
       | Ok result ->
+          List.iter
+            (fun warning ->
+              Diagnostic.emit ~channel:stderr
+                ~source:(fun requested -> if requested = file then Some source else None)
+                warning)
+            result.warnings;
           if !types then print_string (Infer.format_bindings result);
           0)
   | exception Sys_error message ->

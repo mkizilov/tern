@@ -3,8 +3,8 @@
 Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
-to a smaller Core AST, and Hindley–Milner type inference. Interpretation and
-WebAssembly generation are not implemented yet.
+to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
+warnings. Interpretation and WebAssembly generation are not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -150,13 +150,17 @@ dune exec ternc -- check examples/15_list_library.tern
 
 The public executable's command is `ternc check file.tern --types`; `dune exec`
 runs it locally without installing the project. `--types` may precede or follow
-the filename. Successful checking is silent
-unless that flag is present; type reports look like `val id : 'a -> 'a`.
+the filename. Successful checking without warnings is silent unless that flag
+is present; type reports look like `val id : 'a -> 'a`.
 Each top-level bound name is reported in source order, including shadowed names
 and tuple components, but not wildcard/unit bindings, local bindings, the
 prelude, or generated parameters. The whole program must pass before any type
 report is printed. Errors go to stderr (with color only on a terminal) and return
 status 1; usage errors return 2. No program code is executed.
+
+Pattern warnings go to stderr without making checking fail (status 0). They can
+coexist with a successful `--types` report on stdout. Ill-typed files still fail
+before any warnings or partial type reports are emitted.
 
 `Check.source ~file source` runs the front-end pipeline and returns inferred
 schemes or a diagnostic. `Infer.program` accepts an already resolved Core program.
@@ -177,3 +181,25 @@ tests, the 15-example typing corpus, and a Cram check-command integration test.
 They are authored but remain unexecuted here because the shell cannot download
 the local toolchain. Passing Python infrastructure contracts do not establish
 that OCaml compilation, these snapshots, or the command succeeded.
+
+## Exhaustiveness and unreachable cases
+
+After type inference, `Coverage.check` applies Maranget's pattern-matrix
+usefulness algorithm. A match missing values gets a warning with a witness such
+as `None`, `Some None`, or `Cons (1, Nil)`. A case adding no values beyond the
+union of preceding cases gets an unreachable-case warning. This handles nested
+constructors, tuple-column correlations, wildcards, binding patterns, and scalar
+literals—not only duplicate or pairwise-subsumed patterns.
+
+Constructor signatures come from the resolved variant declarations, with actual
+type arguments substituted into payloads. Booleans and unit have finite complete
+signatures; integers/strings use open-literal columns and fresh witnesses. A
+witness is a pattern describing unmatched values: `_` stands for an arbitrary
+well-typed payload where a concrete one is unnecessary or unknown. Coverage is
+conservative under the paper's non-empty-type assumption; it does not prove
+that recursively defined types without finite inhabitants are empty.
+
+`test/coverage_tests.ml` adds nested/partial/redundant pattern expectations,
+parametric variant tests, list/option library checks, and a finite-product
+usefulness/witness property. The new warnings, native tests, and CLI integration
+remain unverified here because toolchain installation is still blocked by DNS.

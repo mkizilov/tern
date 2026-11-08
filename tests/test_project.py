@@ -340,6 +340,22 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("%{bin:ternc}", (ROOT / "test" / "dune").read_text())
         self.assertIn("ternc check polymorphic.tern --types", (ROOT / "test" / "cli.t").read_text())
 
+    def test_match_coverage_is_typed_read_only_and_wired_to_cli_warnings(self):
+        core = (ROOT / "lib" / "core.ml").read_text()
+        coverage = (ROOT / "lib" / "coverage.ml").read_text()
+        inference = (ROOT / "lib" / "infer.ml").read_text()
+        main = (ROOT / "bin" / "ternc.ml").read_text()
+        forms = core.split("and pattern_desc =", 1)[1].split("type expr =", 1)[0]
+        variants = set(re.findall(r"\|\s*(\w+)", forms))
+        normalize = coverage.split("let rec normalize ", 1)[1].split("let signature ", 1)[0]
+        handled = set(re.findall(r"\|\s*(?:Core\.)?(\w+)", normalize))
+        self.assertLessEqual(variants, handled)
+        self.assertNotRegex(coverage, r"Ty\.(unify|fresh|generic|generalize|instantiate)\b")
+        self.assertLess(inference.index("let body_type = expression"), inference.index("Coverage.check"))
+        self.assertIn("result.warnings", main)
+        self.assertIn("Diagnostic.emit ~channel:stderr", main)
+        self.assertIn("4608 usefulness queries", (ROOT / "test" / "coverage_tests.ml").read_text())
+
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()
         self.assertEqual(len(rows), 8)

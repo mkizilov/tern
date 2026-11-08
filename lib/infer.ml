@@ -1,7 +1,11 @@
 module Ids = Map.Make (Int)
 
 type binding = { name : Core.name; scheme : Ty.t }
-type result = { bindings : binding list; body_type : Ty.t }
+type result = {
+  bindings : binding list;
+  body_type : Ty.t;
+  warnings : Diagnostic.t list;
+}
 
 type context = {
   variables : Ty.context;
@@ -11,6 +15,7 @@ type context = {
   string_type : Ty.t;
   unit_type : Ty.t;
   mutable reported : binding list;
+  mutable matches : Coverage.site list;
 }
 
 let constrain span expected actual =
@@ -115,6 +120,7 @@ let rec expression context environment level top (source : Core.expr) : Ty.t =
   | Tuple fields -> Ty.Tuple (List.map (expression context environment level false) fields)
   | Match (subject, cases) ->
       let subject_type = expression context environment level false subject in
+      context.matches <- { Coverage.span = source.span; subject_type; cases } :: context.matches;
       let result = Ty.fresh context.variables level in
       List.iter
         (fun (case : Core.case) ->
@@ -193,7 +199,8 @@ let program (program : Core.program) : (result, Diagnostic.t) Stdlib.result =
       bool_type = builtin Core.Bool_type;
       string_type = builtin Core.String_type;
       unit_type = builtin Core.Unit_type;
-      reported = [] }
+      reported = [];
+      matches = [] }
   in
   let environment =
     List.fold_left
@@ -208,7 +215,8 @@ let program (program : Core.program) : (result, Diagnostic.t) Stdlib.result =
   in
   try
     let body_type = expression context environment 0 true program.value.body in
-    Ok { bindings = List.rev context.reported; body_type }
+    let warnings = Coverage.check program (List.rev context.matches) in
+    Ok { bindings = List.rev context.reported; body_type; warnings }
   with Diagnostic.Raised diagnostic -> Error diagnostic
 
 let format_bindings result =
