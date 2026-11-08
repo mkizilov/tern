@@ -29,6 +29,7 @@ Help does not require an input file.
 
   $ ternc --help
   Usage: ternc check [--types] FILE.tern
+         ternc run --interp FILE.tern
 
 Pattern warnings are non-fatal and coexist with a successful type report.
 

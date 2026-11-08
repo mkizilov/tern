@@ -1,0 +1,193 @@
+module Ids = Map.Make (Int)
+
+type value =
+  | Integer of int32
+  | Boolean of bool
+  | String of string
+  | Unit
+  | Tuple of value list
+  | Variant of Core.symbol * value option
+  | Closure of closure
+  | Builtin of Core.builtin
+  | Constructor_function of Core.symbol
+
+and closure = {
+  parameter : Core.name;
+  body : Core.expr;
+  environment : value Ids.t ref;
+}
+
+type context = {
+  write : string -> unit;
+  mutable constructors : bool Ids.t;
+  mutable current : Ast.span;
+}
+
+let literal = function
+  | Ast.Int value -> Integer value
+  | Ast.Bool value -> Boolean value
+  | Ast.String value -> String value
+  | Ast.Unit -> Unit
+
+let equal_literal literal value =
+  match literal, value with
+  | Ast.Int left, Integer right -> Int32.equal left right
+  | Ast.Bool left, Boolean right -> Bool.equal left right
+  | Ast.String left, String right -> String.equal left right
+  | Ast.Unit, Unit -> true
+  | _ -> false
+
+let rec bind environment (pattern : Core.pattern) value =
+  match pattern.value, value with
+  | Core.Wildcard, _ -> Some environment
+  | Bind name, value -> Some (Ids.add name.value.id value environment)
+  | Literal_pattern literal, value when equal_literal literal value -> Some environment
+  | Tuple_pattern patterns, Tuple values when List.length patterns = List.length values ->
+      bind_fields environment patterns values
+  | Constructor_pattern (name, payload), Variant (tag, value) when name.value.id = tag.id ->
+      (match payload, value with
+      | None, None -> Some environment
+      | Some pattern, Some value -> bind environment pattern value
+      | _ -> None)
+  | _ -> None
+
+and bind_fields environment patterns values =
+  match patterns, values with
+  | [], [] -> Some environment
+  | pattern :: patterns, value :: values ->
+      (match bind environment pattern value with
+      | None -> None
+      | Some environment -> bind_fields environment patterns values)
+  | _ -> assert false
+
+let emit context span text =
+  context.current <- span;
+  try context.write text with
+  | Sys_error message -> Diagnostic.fail span ("output error: " ^ message)
+
+let primitive context (operator : Core.primitive Ast.located) values =
+  context.current <- operator.span;
+  match operator.value, values with
+  | Core.Negate, [ Integer value ] -> Integer (Int32.neg value)
+  | Add, [ Integer left; Integer right ] -> Integer (Int32.add left right)
+  | Subtract, [ Integer left; Integer right ] -> Integer (Int32.sub left right)
+  | Multiply, [ Integer left; Integer right ] -> Integer (Int32.mul left right)
+  | ((Core.Divide | Core.Remainder) as operation), [ Integer left; Integer right ] ->
+      let name = if operation = Core.Divide then "division" else "remainder" in
+      if right = 0l then Diagnostic.fail operator.span ("integer " ^ name ^ " by zero");
+      if left = Int32.min_int && right = -1l then
+        Diagnostic.fail operator.span ("integer " ^ name ^ " overflow");
+      Integer (if operation = Core.Divide then Int32.div left right else Int32.rem left right)
+  | Concat, [ String left; String right ] -> String (left ^ right)
+  | Equal, [ Integer left; Integer right ] -> Boolean (Int32.equal left right)
+  | Not_equal, [ Integer left; Integer right ] -> Boolean (not (Int32.equal left right))
+  | Less, [ Integer left; Integer right ] -> Boolean (Int32.compare left right < 0)
+  | Less_equal, [ Integer left; Integer right ] -> Boolean (Int32.compare left right <= 0)
+  | Greater, [ Integer left; Integer right ] -> Boolean (Int32.compare left right > 0)
+  | Greater_equal, [ Integer left; Integer right ] -> Boolean (Int32.compare left right >= 0)
+  | _ -> assert false
+
+let rec evaluate context environment (source : Core.expr) =
+  context.current <- source.span;
+  match source.value with
+  | Core.Literal value -> literal value
+  | Variable name -> Ids.find name.value.id environment
+  | Constructor name ->
+      if Ids.find name.value.id context.constructors then Constructor_function name.value
+      else Variant (name.value, None)
+  | Lambda (parameter, body) ->
+      Closure { parameter; body; environment = ref environment }
+  | Apply (callee, argument) ->
+      let callee = evaluate context environment callee in
+      let argument = evaluate context environment argument in
+      apply context source.span callee argument
+  | Let (pattern, rhs, body) ->
+      let value = evaluate context environment rhs in
+      (match bind environment pattern value with
+      | Some environment -> evaluate context environment body
+      | None -> Diagnostic.fail pattern.span "pattern binding failed")
+  | Let_rec (bindings, body) ->
+      let shared = ref environment in
+      let recursive_environment =
+        List.fold_left
+          (fun environment (binding : Core.recursive_binding) ->
+            let value =
+              match binding.value.recursive_body.value with
+              | Core.Lambda (parameter, body) ->
+                  Closure { parameter; body; environment = shared }
+              | _ -> assert false
+            in
+            Ids.add binding.value.recursive_name.value.id value environment)
+          environment bindings
+      in
+      (* The whole group is tied before any closure body can run. *)
+      shared := recursive_environment;
+      evaluate context recursive_environment body
+  | If (condition, yes, no) ->
+      (match evaluate context environment condition with
+      | Boolean true -> evaluate context environment yes
+      | Boolean false -> evaluate context environment no
+      | _ -> assert false)
+  | Tuple fields -> Tuple (evaluate_fields context environment fields)
+  | Match (subject, cases) ->
+      let value = evaluate context environment subject in
+      cases_value context environment source.span value cases
+  | Primitive (operator, operands) ->
+      let values = evaluate_fields context environment operands in
+      primitive context operator values
+
+and evaluate_fields context environment = function
+  | [] -> []
+  | first :: rest ->
+      let value = evaluate context environment first in
+      let values = evaluate_fields context environment rest in
+      value :: values
+
+and cases_value context environment span value = function
+  | [] -> Diagnostic.fail span "pattern match failed"
+  | (case : Core.case) :: rest ->
+      (match bind environment case.value.case_pattern value with
+      | Some environment -> evaluate context environment case.value.case_body
+      | None -> cases_value context environment span value rest)
+
+and apply context span callee argument =
+  context.current <- span;
+  match callee, argument with
+  | Closure closure, argument ->
+      let environment = Ids.add closure.parameter.value.id argument !(closure.environment) in
+      evaluate context environment closure.body
+  | Constructor_function constructor, payload -> Variant (constructor, Some payload)
+  | Builtin Core.Print_int, Integer value ->
+      emit context span (Int32.to_string value);
+      Unit
+  | Builtin Print_string, String value -> emit context span value; Unit
+  | _ -> assert false
+
+let program ~write (checked : Check.checked) =
+  let core = checked.core in
+  let context = { write; constructors = Ids.empty; current = core.span } in
+  try
+    let constructors =
+      List.fold_left
+        (fun map (definition : Core.type_decl) ->
+          List.fold_left
+            (fun map (constructor : Core.constructor_decl) ->
+              Ids.add constructor.value.constructor_name.value.id
+                (Option.is_some constructor.value.constructor_payload) map)
+            map definition.value.type_constructors)
+        Ids.empty core.value.types
+    in
+    context.constructors <- constructors;
+    let environment =
+      List.fold_left
+        (fun environment ((name : Core.name), builtin) ->
+          Ids.add name.value.id (Builtin builtin) environment)
+        Ids.empty core.value.builtins
+    in
+    match evaluate context environment core.value.body with
+    | Unit -> Ok ()
+    | _ -> assert false
+  with
+  | Diagnostic.Raised diagnostic -> Error diagnostic
+  | Stack_overflow -> Error (Diagnostic.make context.current "interpreter stack exhausted")
+  | Out_of_memory -> Error (Diagnostic.make context.current "interpreter allocation failed")

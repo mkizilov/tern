@@ -4,7 +4,8 @@ Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
-warnings. Interpretation and WebAssembly generation are not implemented yet.
+warnings. A tree-walking reference interpreter is implemented; WebAssembly
+generation is not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -203,3 +204,39 @@ that recursively defined types without finite inhabitants are empty.
 parametric variant tests, list/option library checks, and a finite-product
 usefulness/witness property. The new warnings, native tests, and CLI integration
 remain unverified here because toolchain installation is still blocked by DNS.
+
+## Reference interpreter
+
+Inside the local opam environment:
+
+```sh
+dune exec ternc -- run --interp examples/01_hello.tern
+dune exec ternc -- run --interp examples/15_list_library.tern
+```
+
+The public command is `ternc run --interp FILE.tern`; `--interp` is currently
+required because no compiled backend exists. The complete front end succeeds
+before execution starts. Warnings go to stderr and do not prevent running;
+syntax, resolution, or typing errors prevent every source effect. Success returns
+0, source/runtime/read errors return 1, and argument errors return 2.
+
+`Check.prepare ~file source` returns a private checked-Core receipt, retaining
+the inferred types/warnings without parsing twice. `Interp.program ~write checked`
+evaluates it with an injected string-to-unit output sink. `Check.source` retains
+its earlier type-checking-only result API. There is no public unchecked evaluator.
+
+The interpreter uses ID-keyed lexical environments and closures. Recursive
+groups share a tied environment; ordinary closures retain the bindings present
+at creation. Calls, tuple fields, constructor payloads, and primitive operands
+evaluate left-to-right. Strings are emitted as exact bytes, and print built-ins
+never insert newlines. Signed 32-bit operations wrap as specified, with explicit
+zero-divisor and minimum-integer/negative-one checks for division and remainder.
+Failed matches return located diagnostics, not invented values. Output streams
+as execution proceeds and survives later failure. The CLI flushes source output
+before emitting runtime diagnostics on stderr.
+
+This is the semantic reference for the future Wasm backend. The native suite now
+includes a 15-file library loop comparing `.out` bytes, a real-command corpus
+loop under `dune test`, and semantic/runtime-error expectations. Those executions
+remain **unverified here**: shell DNS still prevents local OCaml installation.
+The passing Python infrastructure tests check wiring, not interpreter results.

@@ -2,10 +2,14 @@
  (name tern_tests)
  (inline_tests
   (deps
-   (glob_files ../examples/*.tern)))
+   (glob_files ../examples/*.tern)
+   (glob_files ../examples/*.out)))
  (libraries ternc)
  (preprocess
   (pps ppx_expect)))
 
 (cram
- (deps %{bin:ternc}))
+ (deps
+  %{bin:ternc}
+  (glob_files ../examples/*.tern)
+  (glob_files ../examples/*.out)))

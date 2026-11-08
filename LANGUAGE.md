@@ -262,11 +262,20 @@ The `.out` beside each example is exact expected stdout, including newlines.
 
 The fifteen self-contained programs in `examples/` progress from hello world to
 a user-defined list library. `examples/README.md` maps each file to its coverage.
-Expected output is a specification fixture until the interpreter and compiler
-exist; infrastructure tests do not pretend to execute Tern.
+Expected output is the byte-for-byte reference contract for the interpreter and
+future compiler. The native `dune test` corpus loops execute the interpreter and
+compare all matching `.out` files without trimming; infrastructure-only tests do
+not pretend to execute Tern.
 
 The Menhir parser and source printer now consume this syntax. Printing drops
 comments, normalizes whitespace, desugars function-binding shorthand into unary
 `fun`, and adds explicit parentheses. Parsing the printed form must preserve
 the entire AST except source spans; neither parsing nor printing implies that
 the program is well-typed or executable yet.
+
+`ternc run --interp file.tern` runs the fully checked program using the reference
+tree walker. It executes top-level declarations in order and adds no implicit
+output. Runtime diagnostics go separately to stderr; bytes already emitted by
+the source program remain on stdout. This interpreter defines the behavior the
+future Wasm backend must match. Host stack/memory limits can still stop a run;
+the interpreter reports those resource failures on a best-effort basis.

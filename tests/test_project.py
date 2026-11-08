@@ -332,7 +332,7 @@ class RepositoryTests(unittest.TestCase):
         pipeline = (ROOT / "lib" / "check.ml").read_text()
         tests = (ROOT / "test" / "infer_tests.ml").read_text()
         self.assertIn("(public_name ternc)", executable)
-        self.assertIn("Check.source", main)
+        self.assertIn("Check.prepare", main)
         self.assertIn("Infer.format_bindings", main)
         for phase in ("Parse.program", "Resolve.program", "Infer.program"):
             self.assertIn(phase, pipeline)
@@ -352,9 +352,38 @@ class RepositoryTests(unittest.TestCase):
         self.assertLessEqual(variants, handled)
         self.assertNotRegex(coverage, r"Ty\.(unify|fresh|generic|generalize|instantiate)\b")
         self.assertLess(inference.index("let body_type = expression"), inference.index("Coverage.check"))
-        self.assertIn("result.warnings", main)
+        self.assertIn("checked.inferred.warnings", main)
         self.assertIn("Diagnostic.emit ~channel:stderr", main)
         self.assertIn("4608 usefulness queries", (ROOT / "test" / "coverage_tests.ml").read_text())
+
+    def test_interpreter_covers_core_forms_and_requires_a_checked_program(self):
+        core = (ROOT / "lib" / "core.ml").read_text()
+        interpreter = (ROOT / "lib" / "interp.ml").read_text()
+        interface = (ROOT / "lib" / "interp.mli").read_text()
+        checked = (ROOT / "lib" / "check.mli").read_text()
+        forms = core.split("and expr_desc =", 1)[1].split("and recursive_binding =", 1)[0]
+        variants = set(re.findall(r"\|\s*(\w+)", forms))
+        evaluator = interpreter.split("let rec evaluate ", 1)[1].split("and evaluate_fields ", 1)[0]
+        handled = set(re.findall(r"\|\s*(?:Core\.)?(\w+)", evaluator))
+        self.assertLessEqual(variants, handled)
+        self.assertIn("Check.checked", interface)
+        self.assertNotIn("val evaluate", interface)
+        self.assertIn("type checked = private", checked)
+        self.assertIn("shared := recursive_environment", interpreter)
+        self.assertIn("Int32.div", interpreter)
+        self.assertIn("Int32.min_int", interpreter)
+
+    def test_native_interpreter_corpus_tests_use_out_files_without_trimming(self):
+        tests = (ROOT / "test" / "interp_tests.ml").read_text()
+        cli = (ROOT / "test" / "interp_cli.t").read_text()
+        dune = (ROOT / "test" / "dune").read_text()
+        self.assertIn("(glob_files ../examples/*.out)", dune)
+        self.assertIn("actual <> expected", tests)
+        self.assertNotIn("String.trim", tests)
+        self.assertIn("Interp.program", tests)
+        self.assertIn("ternc run --interp", cli)
+        self.assertIn('cmp "$expected" actual.out', cli)
+        self.assertIn('test "$count" -eq 15', cli)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

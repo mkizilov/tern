@@ -9,7 +9,8 @@ the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printe
 Prompt 4 adds unified, rendered diagnostics and parser-state messages. Prompt 5
 adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
 `ternc check` command. Prompt 7 adds typed match usefulness/exhaustiveness warnings.
-There is no interpreter or WebAssembly backend yet.
+Prompt 8 adds the checked-Core reference interpreter and `run --interp` command.
+There is no WebAssembly backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -686,3 +687,94 @@ usefulness and witness checks against explicit enumeration. This validates the
 modeled recursion, not execution of the OCaml implementation or its substitution
 code. The scratch model is removed before handoff. No dependencies were installed
 outside the repository and no sandbox boundary was bypassed.
+
+## Reference interpreter (Prompt 8)
+
+`Interp` is the tree-walking semantic reference for later Wasm execution. Its
+public interface accepts only `Check.checked`, a private record created by
+`Check.prepare` after parsing, resolution, and inference/coverage succeed. That
+record retains both immutable Core and the inferred result. This is a checked
+Core receipt, not a second AST: runtime evaluation needs no per-node type
+annotations. The original `Check.source` API still returns only the inference
+result for existing clients. The CLI uses preparation once for either command;
+no source effects run if a later declaration fails checking.
+
+### Values, scopes, and recursive closures
+
+Internal values are int32, bool, string, unit, tuples, tagged variants, unary
+closures, output built-ins, or unary constructor functions. The public interface
+does not expose raw evaluation of unchecked Core. A nullary constructor evaluates
+to its tagged variant; a payload constructor is a first-class closed function
+that constructs the variant on application. Constructor tags and environment
+keys are Core IDs, not spellings. Polymorphic type arguments are erased at runtime.
+
+An environment is a persistent integer map. Ordinary closures store a reference
+to the lexical environment present at creation; that reference is not changed.
+For each recursive group, one shared environment reference is created, every
+member closure is inserted into the complete map, and the reference is tied to
+that map before any body or continuation runs. Local groups can escape and keep
+their outer values; separate invocations have separate references. Later source
+shadows cannot mutate an earlier closure's captured bindings. OCaml's collector
+handles the recursive closure/environment cycles.
+
+Each function application evaluates the callee before the argument, then extends
+the closure's captured environment with the parameter ID. Explicit field-walking
+helpers sequence tuple/primitive operands left-to-right rather than relying on
+OCaml argument evaluation order. Only the selected conditional branch evaluates.
+The Core short-circuit guard evaluates a needed right operand once and skips it
+otherwise. Pattern matching evaluates its subject once, tries cases in source
+order, and performs literal/tuple/tag/payload matching. Pattern bindings create
+temporary persistent maps; failed patterns never change the next case's starting
+environment. Pattern literals compare scalar values, never closure environments.
+
+### Arithmetic, output, and errors
+
+Arithmetic uses the target compiler's standard `Int32` operations (whose API
+specifies modulo-2^32 arithmetic), not host `int`. Division truncates toward
+zero and remainder has the dividend's sign. Both operations explicitly reject
+zero divisors and `min_int / -1` operand pairs, including the corresponding
+remainder pair, matching Tern's stricter runtime contract. Comparisons are signed.
+Concatenation joins immutable string bytes. Print-int uses signed decimal text;
+print-string emits exact bytes. Neither adds a newline.
+
+`Interp.program ~write checked` takes an injected byte-string sink and returns
+unit or `Diagnostic.t`. The sink is called as each print occurs, so output before
+an arithmetic/match error remains visible. The CLI's stdout sink flushes each
+call, keeping source output separate from stderr diagnostics. Runtime match
+failure points to the match expression; arithmetic traps point to the operator;
+sink `Sys_error` failures point to the write call. A current-span field also
+supports best-effort diagnostics for host stack/allocation exhaustion. Interpreter
+internal shape assertions are producer/type-checker invariants, not user-facing
+dynamic typing. Host resource limits and arbitrary sink exceptions are not
+silently hidden; there is no artificial evaluation/fuel limit.
+
+`ternc run --interp FILE.tern` requires the explicit interpreter flag for now.
+Front-end warnings are emitted before execution without changing success status.
+Runtime/read/front-end errors return 1; argument errors return 2. The existing
+check command still never evaluates code. No Wasm runner, hardware, service,
+dependency, permanent launcher, or global installation was added.
+
+### Golden corpus and current verification limits
+
+`test/interp_tests.ml` contains semantic expectations for lexical capture and
+shadowing, currying/higher-order calls, self/local/mutual recursion, escaping
+recursive groups, tail calls, all evaluation-order paths, selected branches and
+short-circuit effects, tuple/unit/constructor/literal patterns, builtin shadowing,
+int32 wrap/comparison/division/remainder edges, match failure, retained stdout,
+source-located runtime errors, sink failure, pre-run checking, and invocation
+isolation. Its native corpus loop checks all 15 `.tern` files against their `.out`
+files with exact binary-string equality, not trimming or newline normalization.
+`test/interp_cli.t` independently loops over the same files using the real public
+command and `cmp`, checks the count is 15, and tests partial output/error statuses
+and refusal to execute ill-typed code. Dune declares both `.tern` and `.out` inputs.
+
+Setup was retried and again exited 6 resolving `github.com`; the local compiler
+switch is still absent and `scripts/check.sh` stopped on that prerequisite.
+Native compilation, interpreter expectations, both golden loops, CLI execution,
+formatting, and actual example stdout remain **unverified**. No example output
+or benchmark timing is fabricated. The 21 standalone infrastructure/static
+contracts passed, including coverage of Core forms, the checked-only interface,
+recursive environment wiring, and byte-for-byte corpus dependencies. Those
+contracts are not semantic execution. AFT lacks the required OCaml/Python language
+servers and treats Cram `.t` files as Perl; indexed search was used after the
+call-graph tool reported OCaml files unindexed. No sandbox boundary was bypassed.

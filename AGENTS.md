@@ -22,8 +22,8 @@ Extend this file with the project's language-specific architecture and verificat
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
   The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
   source printer, Core/resolver, HM inference, and typed match coverage live in
-  `lib/`. `bin/ternc.ml` implements checking; interpretation and WebAssembly
-  phases are not implemented.
+  `lib/`, alongside the reference interpreter. `bin/ternc.ml` implements checking
+  and `run --interp`; WebAssembly phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -56,6 +56,15 @@ Extend this file with the project's language-specific architecture and verificat
 - Run `dune exec ternc -- check file.tern --types` to check and print top-level
   binding types. `Check.source` is the reusable parse → resolve → infer API.
   Formatting types must use `Ty.show`/`Ty.show_pair`, not internal variable IDs.
+- `Check.prepare` returns a private `Check.checked` receipt containing checked
+  Core plus inference/warnings. `Interp.program` accepts only that receipt;
+  checking must complete before any source effect is executed.
+- Interpreter environments use binder IDs and lexical snapshots. Recursive
+  groups share an environment tied before any body runs. Preserve left-to-right
+  callee/argument/field evaluation, signed Int32 semantics, and streaming output.
+- Run `dune exec ternc -- run --interp file.tern`. Native interpreter and CLI
+  corpus tests compare every example with its `.out` byte-for-byte, without
+  trimming. Runtime errors must preserve already-written stdout.
 - Use `Diagnostic.t` for all compiler errors, with a primary span, severity,
   optional secondary labels, and notes. Supply source text to the renderer;
   do not let rendering implicitly read arbitrary filenames. User-facing columns

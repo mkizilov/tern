@@ -1,9 +1,12 @@
 open Tern
 
-let usage = "Usage: ternc check [--types] FILE.tern"
+type command = Checking | Interpreting
 
-let run arguments =
+let usage = "Usage: ternc check [--types] FILE.tern\n       ternc run --interp FILE.tern"
+
+let run command arguments =
   let types = ref false in
+  let interp = ref false in
   let filename = ref None in
   let anonymous file =
     match !filename with
@@ -11,8 +14,14 @@ let run arguments =
     | Some _ -> raise (Arg.Bad "expected exactly one input file")
   in
   let arguments = Array.of_list (Sys.argv.(0) :: arguments) in
-  Arg.parse_argv arguments
-    [ "--types", Arg.Set types, " print top-level inferred types" ] anonymous usage;
+  let options =
+    match command with
+    | Checking -> [ "--types", Arg.Set types, " print top-level inferred types" ]
+    | Interpreting -> [ "--interp", Arg.Set interp, " use the reference interpreter" ]
+  in
+  Arg.parse_argv arguments options anonymous usage;
+  if command = Interpreting && not !interp then
+    raise (Arg.Bad ("run currently requires --interp\n" ^ usage));
   let file =
     match !filename with
     | Some file -> file
@@ -24,18 +33,25 @@ let run arguments =
   in
   match In_channel.with_open_bin file In_channel.input_all with
   | source ->
-      (match Check.source ~file source with
+      let lookup requested = if requested = file then Some source else None in
+      (match Check.prepare ~file source with
       | Error diagnostic ->
-          report (fun requested -> if requested = file then Some source else None) diagnostic
-      | Ok result ->
+          report lookup diagnostic
+      | Ok checked ->
           List.iter
             (fun warning ->
-              Diagnostic.emit ~channel:stderr
-                ~source:(fun requested -> if requested = file then Some source else None)
-                warning)
-            result.warnings;
-          if !types then print_string (Infer.format_bindings result);
-          0)
+              Diagnostic.emit ~channel:stderr ~source:lookup warning)
+            checked.inferred.warnings;
+          (match command with
+          | Checking ->
+              if !types then print_string (Infer.format_bindings checked.inferred);
+              0
+          | Interpreting ->
+              let write text = output_string stdout text; flush stdout in
+              (match Interp.program ~write checked with
+              | Ok () -> 0
+              | Error diagnostic ->
+                  report lookup diagnostic)))
   | exception Sys_error message ->
       let position : Ast.position = { line = 1; column = 0; byte_offset = 0 } in
       let span : Ast.span = { file; start_pos = position; end_pos = position } in
@@ -45,7 +61,8 @@ let () =
   let status =
     try
       match Array.to_list Sys.argv with
-      | _ :: "check" :: arguments -> run arguments
+      | _ :: "check" :: arguments -> run Checking arguments
+      | _ :: "run" :: arguments -> run Interpreting arguments
       | _ :: ("--help" | "-help") :: [] -> print_endline usage; 0
       | _ -> prerr_endline usage; 2
     with
