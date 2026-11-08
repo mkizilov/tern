@@ -1,0 +1,3 @@
+let piece = "a" ^ "b";;
+let rec build n text = if n = 0 then text else build (n - 1) (text ^ piece);;
+let () = print_string (build 4000 ""); print_string "\n";;

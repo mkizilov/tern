@@ -111,6 +111,11 @@ Ten million tail calls run in bounded heap memory without growing the Wasm stack
   42
   10,000,000 tail calls completed; heap below one page
 
+The optimization pipeline retains bounded-stack tail calls.
+
+  $ ternc run --opt-all deep.tern
+  42
+
 Non-exhaustive matching fails at runtime without losing preceding output.
 
   $ cat > missing.tern <<'TERN'

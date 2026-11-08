@@ -15,7 +15,7 @@
 
 (library
  (name differential_expect)
- (modules expect_tests)
+ (modules expect_tests optimizer_tests)
  (inline_tests)
  (libraries ternc tern_diff qcheck)
  (preprocess

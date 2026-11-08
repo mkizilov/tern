@@ -3,6 +3,8 @@
  (deps
   (source_tree scripts)
   (source_tree examples)
+  (source_tree benchmarks)
+  lib/optimize.ml
   lib/dune
   lib/grammar.messages
   lib/parse.ml
@@ -37,6 +39,7 @@
   test/closure_tests.ml
   test/wat_tests.ml
   test/wasm_cli.t
+  test/opt_cli.t
   (source_tree test/differential)
   test/ir_cli.t
   test/cli.t

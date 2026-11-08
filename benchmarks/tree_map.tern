@@ -1,0 +1,14 @@
+type tree = Empty | Node of (int * int * tree * tree);;
+let rec insert key value map = match map with
+  | Empty -> Node (key, value, Empty, Empty)
+  | Node (k, v, left, right) ->
+      if key < k then Node (k, v, insert key value left, right)
+      else if key > k then Node (k, v, left, insert key value right)
+      else Node (key, value, left, right);;
+let rec find key map = match map with
+  | Empty -> 0
+  | Node (k, v, left, right) -> if key = k then v else if key < k then find key left else find key right;;
+let rec build n map = if n = 0 then map else
+  let key = (n * 37) mod 1009 in build (n - 1) (insert key (key + 1) map);;
+let rec sum n map = if n = 0 then 0 else find n map + sum (n - 1) map;;
+let () = print_int (sum 1008 (build 1000 Empty)); print_string "\n";;

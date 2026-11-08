@@ -1,0 +1,9 @@
+type 'a option = None | Some of 'a;;
+let make offset = fun x -> offset + x;;
+let unwrap value = match value with None -> 0 | Some n -> n;;
+let bump x = x + 1;;
+let rec run n total = if n = 0 then total else
+  let add = make n in
+  let value = unwrap (Some (add (bump n))) in
+  let unused = 7 * 9 in run (n - 1) (total + value);;
+let () = print_int (run 10000 0); print_string "\n";;

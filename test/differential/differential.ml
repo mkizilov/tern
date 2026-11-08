@@ -42,7 +42,7 @@ let await ?(timeout = 10.) pid =
   in
   loop ()
 
-let execute ~file source =
+let execute ?(optimizations = Optimize.all) ~file source =
   let checked =
     match Check.prepare ~file source with
     | Ok checked -> checked
@@ -50,12 +50,15 @@ let execute ~file source =
         failwith ("invalid differential input: " ^ Diagnostic.show diagnostic)
   in
   let ast = capture (fun write -> Interp.program ~write checked) in
-  let closed = Closure_convert.program (Lower.program checked) in
+  let closed =
+    Closure_convert.program
+      (Optimize.program optimizations (Lower.program checked))
+  in
   let ir = capture (fun write -> Ir_interp.closed ~write closed) in
   let wasm =
     with_workspace (fun directory ->
         let binary = Filename.concat directory "case.wasm" in
-        (match Wasm_build.build ~output:binary checked with
+        (match Wasm_build.build ~optimizations ~output:binary checked with
         | Ok () -> ()
         | Error diagnostic ->
             failwith
@@ -118,12 +121,12 @@ let describe result =
   String.concat "\n"
     [ show "AST" result.ast; show "IR" result.ir; show "Wasm" result.wasm ]
 
-let check ~file source =
-  let result = execute ~file source in
+let check ?(optimizations = Optimize.all) ~file source =
+  let result = execute ~optimizations ~file source in
   if not (agrees result) then failwith (describe result);
   result.ast
 
-let corpus directory =
+let corpus ?(optimizations = Optimize.all) directory =
   let rec programs directory =
     Sys.readdir directory |> Array.to_list |> List.sort String.compare
     |> List.concat_map (fun name ->
@@ -136,7 +139,7 @@ let corpus directory =
   List.iter
     (fun file ->
       let source = In_channel.with_open_bin file In_channel.input_all in
-      let actual = check ~file source in
+      let actual = check ~optimizations ~file source in
       let output = Filename.remove_extension file ^ ".out" in
       if not (Sys.file_exists output) then
         failwith ("missing stdout golden: " ^ output);

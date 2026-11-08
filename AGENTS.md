@@ -132,6 +132,20 @@ Extend this file with the project's language-specific architecture and verificat
 
 ## Verification commands and tests
 
+- `Optimize.program flags` runs opt-in ANF passes before closure conversion:
+  small nonrecursive inlining → constant folding/propagation → known-constructor
+  decision simplification → dead code. Defaults remain `Optimize.none`.
+  CLI flags are `--inline`, `--const-fold`, `--match-simplify`, `--dce`, and
+  `--opt-all` for build/run/dump-ir; the AST interpreter stays unoptimized.
+- Preserve effect/trap order, int32 overflow, unique binder/join IDs, and closure
+  capture. Do not remove potentially trapping operations as merely unused.
+  `test/differential/optimizer_tests.ml` tests each pass separately; the property
+  harness uses all passes and also checks the full corpus per individual pass.
+- `benchmarks/measure.mjs` reproduces `OPTIMIZATIONS.md` using the existing built
+  CLI and Node with `--expose-gc --max-old-space-size=256`; no npm dependencies.
+  Measure fresh Wasm instances sequentially; keep generated binaries in scoped
+  project-local scratch. Distinguish identical-binary timing noise from wins.
+
 - `scripts/check.sh` is the authoritative gate: it prepends `.tools/bin` to PATH,
   selects this repository's switch, and runs `dune build`, `dune test`, then
   `dune fmt`, each with `-j 2`. Missing tools and failed steps are errors.

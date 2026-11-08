@@ -1,0 +1,3 @@
+let cutoff = 1 + 0;;
+let rec fib n = if n <= cutoff then n else fib (n - 1) + fib (n - 2);;
+let () = print_int (fib 24); print_string "\n";;

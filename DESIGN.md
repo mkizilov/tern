@@ -1485,3 +1485,88 @@ This was not a language-engine mismatch. Context7 did not resolve the OCaml QChe
 package (only unrelated JavaScript libraries); the installed API `.mli`
 files supplied the authoritative generator/shrinker/runner signatures. AFT still
 lacks ocamllsp; actual builds and executions are the verification authority.
+
+## IR optimization pipeline (turn 15)
+
+`Optimize.program : flags -> Anf.program -> Anf.program` runs before closure
+conversion, so it can still reason about lexical lambdas and source constructors.
+All flags default off in `Wasm_build.emit/build/run` and the CLI, preserving the
+prior pipeline. `build`, compiled `run`, `run --ir`, and both `dump-ir` printers
+accept `--inline`, `--const-fold`, `--match-simplify`, `--dce`, or `--opt-all`.
+The AST interpreter is never optimized; combining it with these flags is an error.
+Enabled passes run once in a deterministic order: inline → constants → matches →
+DCE. There is no speculative fixed point, whole-program specialization, or GC.
+
+- **`Opt_inline`** records lexical nonrecursive lambdas/aliases whose transformed
+  bodies cost at most 20 ANF expression/RHS nodes. Any nested recursive group
+  disqualifies a body; recursive group members are not candidates. Copies replace
+  only atom arguments, never re-evaluate an argument, preserve definition-site
+  free IDs, and freshen every copied binder, parameter, and join label starting
+  at `program.next_id`. Copied bodies are not repeatedly expanded at the call
+  site. Unknown higher-order callees remain calls; source spans survive copies.
+- **`Opt_const`** propagates literal/copy aliases through lexical scopes, folds
+  primitive arithmetic/comparisons/concat with the shared `Runtime` semantics,
+  selects constant booleans, and propagates pure block returns. Int32 wrapping
+  is exact. Zero divisors and min-int / -1 division/remainder remain runtime
+  operations, not compiler exceptions or discarded traps. Concat folding respects
+  the runtime's 24-bit byte-size bound. Selected branch effects stay in order.
+- **`Opt_match`** tracks constructor functions versus nullary/payload values,
+  tuple fields, literals, and aliases. It selects only a proven decision key,
+  retaining the default when no key matches, and substitutes projections only
+  from proven layouts. It does not treat an arbitrary call as a constructor,
+  speculate through a join formal, or erase subject computation. Whole-value
+  wildcard fallbacks keep their original value and binder identity.
+- **`Opt_dce`** removes unused aliases, lambdas, and total integer primitives.
+  Calls, division/remainder, concat, construction, projections, and arbitrary
+  blocks remain unless another pass proves a replacement. Recursive definitions
+  and join actions use transitive reachability from their continuation, so live
+  mutually-recursive peers survive. This is conservative, not an effect system.
+
+No source-visible mutation or pointer identity is introduced. Allocation counts
+and exhaustion points may differ when values/functions are eliminated or literals
+are propagated; equivalence is for language values, output/effect order, and
+language traps, not identical resource usage.
+
+### Tests and measurements
+
+`test/differential/optimizer_tests.ml` tests each pass independently and checks
+actual AST/optimized IR/optimized Wasm observations. It covers wrapping/traps,
+constant branch effects, unused pure code, recursive reachability, lexical
+shadowing, single evaluation, recursion exclusion, globally unique copied IDs
+(including nested lambdas/joins), constructor decisions/fallbacks, and determinism.
+`test/opt_cli.t` verifies each public flag, IR flags, combined compilation, and
+AST-mode rejection. The existing corpus is checked with baseline, every pass
+alone, and all flags. The two generated differential properties now optimize IR
+and Wasm with all flags while leaving AST unoptimized; typed shrinking remains
+unchanged. Existing compiled goldens and the 10-million-tail-call test remain.
+
+Five benchmark sources and a repeatable sequential measurement runner live under
+`benchmarks/`; results are in `OPTIMIZATIONS.md`. Each of 30 configurations is
+assembled, validated, and compared byte-for-byte to actual AST output. Sizes are
+binary file bytes, not WAT text. Runtime medians exclude building/instantiation/
+host GC, include execution/output capture, and use fresh bounded-memory Wasm
+instances. Identical SHA-256 binaries reveal host/JIT/order noise rather than
+false optimizer wins. Bump/memory counters expose allocation tradeoffs; no new
+dependencies, external dataset, or persistent benchmark outputs are required.
+
+### Observed verification
+
+The complete `scripts/check.sh` gate passes: native build, 13 optimizer phase
+expectations, public CLI flag checks, the optimized 10-million-step tail loop,
+all prior phase/runtime/CLI tests, 30 infrastructure contracts, and formatting.
+Each of baseline/constants/DCE/inline/matches/all checked the 15-example and
+five-program corpus. The default all-enabled seed 20261108 passed 150 executions
+per property plus 500 typed generation/shrink checks. Seed 20261109 then passed
+500 executions per property plus another 500 shrink checks; richer coverage had
+337 match programs, 289 variant programs, and 111 higher-order programs.
+No engine mismatch was found; none was fabricated or discarded.
+
+The benchmark runner validated all 30 final configurations and exact outputs.
+An earlier batched measurement produced a 62.4% apparent slowdown for identical
+list-sort bytes; final measurements rotate/interleave configurations and mark
+identical binary content explicitly. The shared host still is not an isolated
+performance environment, and these observations are not statistical guarantees.
+Scratch is scoped and removed by the runners; no services/watchers are needed.
+AFT's OCaml call graph/diagnostics are unavailable here, and it misclassifies Cram
+as Perl. Reference search, actual OCaml compilation, native Cram/expect tests,
+Wasm validation, and executed comparisons are the authority, not those tool gaps.

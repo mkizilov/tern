@@ -412,3 +412,32 @@ Tools remain bounded to two workers. Failures print the seed, minimized source,
 and engine observations; keep confirmed minimized bugs under `tests/programs`
 with expected stdout/status. Tests do not mutate source fixtures or retain scratch
 output. `DESIGN.md` records actual campaigns and any bugs found.
+
+## Opt-in IR optimizations
+
+The default compiler remains unoptimized. Enable passes independently or together:
+
+```sh
+dune exec ternc -- build examples/07_factorial.tern --const-fold --dce -o factorial.wasm
+dune exec ternc -- run --opt-all examples/15_list_library.tern
+dune exec ternc -- dump-ir --inline --match-simplify examples/14_variant_tree.tern
+```
+
+`--const-fold` folds/propagates constants, `--dce` removes dead pure bindings and
+unreachable functions/case actions, `--inline` copies small nonrecursive bodies,
+and `--match-simplify` selects decisions on proven constructors/literals and
+their fields. `--opt-all` runs inline → constants → matches → DCE. The same flags
+work with `run --ir` and `dump-ir --closed`. `run --interp` deliberately remains
+the unoptimized semantic oracle and rejects optimization flags.
+
+Each pass has its own expect tests and all-corpus differential checks. Generated
+AST/IR/Wasm comparisons enable every pass; interpreter stdout/status must still
+agree. Optimizations preserve effects and language traps, not the exact point of
+resource exhaustion. Inlining can increase code size; literal propagation can
+increase allocations. No pass promises universal improvements.
+
+`benchmarks/` contains naive Fibonacci, insertion sort, a persistent tree map,
+string building, and closure-heavy programs. `OPTIMIZATIONS.md` records actual
+Wasm byte sizes, median execution times, and bump-memory usage with every pass
+disabled, each pass alone, and all enabled. It includes the reproducible command,
+warmup/timing boundaries, binary-content comparisons, and limitations.

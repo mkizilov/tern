@@ -502,9 +502,22 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Fun.protect", driver)
         self.assertIn("Unix.rmdir directory", driver)
         self.assertIn("Runtime_assets.host", driver)
-        self.assertIn("Wasm_build.run checked", main)
+        self.assertIn("Wasm_build.run ~optimizations:!optimizations checked", main)
         self.assertIn("validation-rejected", cli)
         self.assertIn('test "$count" -eq 15', cli)
+
+    def test_optimization_passes_are_opt_in_independent_and_differentially_checked(self):
+        pipeline = (ROOT / "lib/optimize.ml").read_text()
+        driver = (ROOT / "lib/wasm_build.ml").read_text()
+        harness = (ROOT / "test/differential/differential.ml").read_text()
+        for flag in ("--const-fold", "--dce", "--inline", "--match-simplify", "--opt-all"):
+            self.assertIn(flag, pipeline)
+        for module in ("Opt_const.program", "Opt_dce.program", "Opt_inline.program", "Opt_match.program"):
+            self.assertIn(module, pipeline)
+        self.assertIn("optimizations = Optimize.none", driver)
+        self.assertIn("optimizations = Optimize.all", harness)
+        self.assertIn("Optimize.program optimizations", harness)
+        self.assertEqual(len(list((ROOT / "benchmarks").glob("*.tern"))), 5)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

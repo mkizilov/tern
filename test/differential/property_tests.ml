@@ -46,6 +46,18 @@ let shrinking =
       true)
 
 let () =
+  List.iter
+    (fun (name, flags) ->
+      ignore (Differential.corpus ~optimizations:flags "../../examples");
+      ignore (Differential.corpus ~optimizations:flags "../../tests/programs");
+      Printf.printf "isolated pass corpus: %s passed\n%!" name)
+    [
+      ("baseline", Tern.Optimize.none);
+      ("constants", { Tern.Optimize.none with constants = true });
+      ("dce", { Tern.Optimize.none with dead_code = true });
+      ("inline", { Tern.Optimize.none with inline = true });
+      ("matches", { Tern.Optimize.none with matches = true });
+    ];
   let examples = Differential.corpus "../../examples" in
   let programs = Differential.corpus "../../tests/programs" in
   Printf.printf

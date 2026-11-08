@@ -15,6 +15,7 @@ let run command arguments =
   let closed = ref false in
   let output = ref None in
   let filename = ref None in
+  let optimizations = ref Optimize.none in
   let anonymous file =
     match !filename with
     | None -> filename := Some file
@@ -39,7 +40,13 @@ let run command arguments =
             " write validated Wasm" );
         ]
   in
+  let options =
+    if command = Checking then options
+    else options @ Optimize.options optimizations
+  in
   Arg.parse_argv arguments options anonymous usage;
+  if command = Interpreting && !interp && !optimizations <> Optimize.none then
+    raise (Arg.Bad "IR optimizations cannot be combined with --interp");
   if command = Interpreting && !interp && !ir then
     raise (Arg.Bad ("run accepts at most one of --interp or --ir\n" ^ usage));
   if command = Building && !output = None then
@@ -69,14 +76,19 @@ let run command arguments =
                 print_string (Infer.format_bindings checked.inferred);
               0
           | Dumping_ir ->
-              let ir = Lower.program checked in
+              let ir =
+                Optimize.program !optimizations (Lower.program checked)
+              in
               print_string
                 (if !closed then
                    Closed_pretty.program (Closure_convert.program ir)
                  else Ir_pretty.program ir);
               0
           | Building -> (
-              match Wasm_build.build ~output:(Option.get !output) checked with
+              match
+                Wasm_build.build ~optimizations:!optimizations
+                  ~output:(Option.get !output) checked
+              with
               | Ok () -> 0
               | Error diagnostic -> report lookup diagnostic)
           | Interpreting -> (
@@ -91,8 +103,10 @@ let run command arguments =
                   Result.map
                     (fun () -> 0)
                     (Ir_interp.closed ~write
-                       (Closure_convert.program (Lower.program checked)))
-                else Wasm_build.run checked
+                       (Closure_convert.program
+                          (Optimize.program !optimizations
+                             (Lower.program checked))))
+                else Wasm_build.run ~optimizations:!optimizations checked
               in
               match result with
               | Ok status -> status

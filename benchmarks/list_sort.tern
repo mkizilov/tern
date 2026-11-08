@@ -1,0 +1,8 @@
+type list = Nil | Cons of (int * list);;
+let rec insert x values = match values with
+  | Nil -> Cons (x, Nil)
+  | Cons (head, tail) -> if x < head then Cons (x, values) else Cons (head, insert x tail);;
+let rec sort values = match values with Nil -> Nil | Cons (head, tail) -> insert head (sort tail);;
+let rec range n = if n = 0 then Nil else Cons (n, range (n - 1));;
+let rec checksum values = match values with Nil -> 0 | Cons (head, tail) -> head + 31 * checksum tail;;
+let () = print_int (checksum (sort (range 300))); print_string "\n";;

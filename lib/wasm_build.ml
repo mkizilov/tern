@@ -82,11 +82,13 @@ let protect span action =
            ^ (if target = "" then "" else " " ^ target)
            ^ ": " ^ Unix.error_message error))
 
-let emit (checked : Check.checked) =
-  Wat.program (Closure_convert.program (Lower.program checked))
+let emit ?(optimizations = Optimize.none) (checked : Check.checked) =
+  Wat.program
+    (Closure_convert.program
+       (Optimize.program optimizations (Lower.program checked)))
 
-let build ~output (checked : Check.checked) =
-  match emit checked with
+let build ?(optimizations = Optimize.none) ~output (checked : Check.checked) =
+  match emit ~optimizations checked with
   | Error diagnostic -> Error diagnostic
   | Ok wat ->
       protect checked.core.span (fun () ->
@@ -112,8 +114,8 @@ let build ~output (checked : Check.checked) =
                     (In_channel.with_open_bin binary In_channel.input_all);
                   Sys.rename temporary output)))
 
-let run (checked : Check.checked) =
-  match emit checked with
+let run ?(optimizations = Optimize.none) (checked : Check.checked) =
+  match emit ~optimizations checked with
   | Error diagnostic -> Error diagnostic
   | Ok wat ->
       protect checked.core.span (fun () ->
