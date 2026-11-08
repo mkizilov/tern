@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { writeSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, realpathSync, writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 function stdout(bytes) {
@@ -57,7 +56,7 @@ export async function run(filename) {
   instance.exports._start();
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (process.argv[1] && existsSync(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   if (process.argv.length !== 3) {
     process.stderr.write('Usage: node runtime/run.mjs FILE.wasm\n');
     process.exitCode = 2;

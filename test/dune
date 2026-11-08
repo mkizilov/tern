@@ -11,5 +11,6 @@
 (cram
  (deps
   %{bin:ternc}
+  ../runtime/run.mjs
   (glob_files ../examples/*.tern)
   (glob_files ../examples/*.out)))

@@ -450,6 +450,32 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Ir_interp.closed ~write (Closure_convert.program", " ".join(main.split()))
         self.assertIn("AST = ANF = closed IR = golden bytes", tests)
 
+    def test_part_one_backend_embeds_runtime_and_uses_checked_i32_operations(self):
+        dune = (ROOT / "lib" / "dune").read_text()
+        backend = (ROOT / "lib" / "wat.ml").read_text()
+        self.assertIn("(target runtime_assets.ml)", dune)
+        self.assertIn("(cat ../runtime/runtime.wat)", dune)
+        self.assertIn("(cat ../runtime/run.mjs)", dune)
+        self.assertIn("source function", backend)
+        self.assertIn("i32.rem_s", backend)
+        self.assertIn("-2147483648", backend)
+        self.assertIn("memory.init", backend)
+        self.assertIn('unsupported source.span "indirect closure calls"', backend)
+
+    def test_build_driver_validates_before_atomic_publish_and_cleans_workspace(self):
+        driver = (ROOT / "lib" / "wasm_build.ml").read_text()
+        main = (ROOT / "bin" / "ternc.ml").read_text()
+        cli = (ROOT / "test" / "wasm_cli.t").read_text()
+        self.assertIn('"parse"', driver)
+        self.assertIn('"validate"', driver)
+        self.assertIn("Sys.rename temporary output", driver)
+        self.assertIn("Fun.protect", driver)
+        self.assertIn("Unix.rmdir directory", driver)
+        self.assertIn("Runtime_assets.host", driver)
+        self.assertIn("Wasm_build.run checked", main)
+        self.assertIn("validation-rejected", cli)
+        self.assertIn('test "$count" -eq 7', cli)
+
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()
         self.assertEqual(len(rows), 8)

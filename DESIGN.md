@@ -13,7 +13,8 @@ Prompt 8 adds the checked-Core reference interpreter and `run --interp` command.
 Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
 `dump-ir`/`run --ir`. Prompt 10 adds explicit closure conversion and converted
 execution. Prompt 11 adds the hand-written WAT memory runtime and Node host.
-There is no compiler WebAssembly emitter yet.
+Prompt 12 adds part-1 WAT emission, assembly/validation, build, and compiled run.
+General higher-order/data/match emission is not implemented yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -1195,3 +1196,105 @@ the existing OCaml/CLI suites, the new Dune runtime rule, and formatting.
 without a JS workspace marker and has no WAT diagnostic producer; actual Node
 execution and Wasm assembly/validation are the authority. No package or global
 tool was installed, and no server/watch process was started.
+
+## WAT backend, part 1 (Prompt 12)
+
+`Wat.program : Closed.program -> (string, Diagnostic.t) result` is the pure
+emission boundary. It produces a complete module using the Prompt-11 runtime,
+with comments naming source functions and numeric SSA-derived Wasm names. Source
+aliases identify nonrecursive function literals for readable comments; recursive
+definitions already retain their source names. Value locals/parameters are i64;
+closed functions use the existing `(i64 environment, i64 argument) -> i64` type.
+Code labels are `$fnN`, matching Closed indices without pretending they are the
+module's physical function indices. No indirect-call table is emitted yet.
+
+Supported expressions are atom returns, named lets, conditionals and nested
+blocks, direct calls, and builtin printing. Returns leave a block value rather
+than exiting the Wasm function, so `let x = if ...` and `... + if ...` retain their
+continuations. Locals from both branches are declared once; only the chosen branch
+executes. Conditions call `rt_unbox_bool`, since encoded false is not raw zero.
+Every integer operation unboxes to i32, performs the signed/wrapping operation,
+and reboxes; comparison results use `rt_bool`. Negation is wrapping `0 - n`.
+Division and remainder helpers reject both zero and min-int/-1 operands before
+the machine instruction; the latter remainder check is essential because Wasm
+`i32.rem_s` alone would return zero. Arithmetic traps currently become the host's
+nonzero runtime failure, not a source-mapped Diagnostic.
+
+Literal strings are the minimal string support required for ordinary printing
+and newlines in this subset. UTF-8 bytes become passive data segments, copied into
+a freshly allocated runtime string by a literal helper. This avoids a fixed static
+data-region limit and preserves bytes/escaping without source-string interpolation
+into WAT. Equal literal contents share a data segment but allocations remain
+independent; there is no observable pointer identity. String concatenation is
+not implemented in this task.
+
+Closed conversion produces environment allocation, capture loads/stores, closure
+records, and environment extraction even for direct calls. The backend lowers
+these compiler-internal forms through runtime helpers, including shared recursive
+initialization. Direct calls name `$fnN` and pass the explicit environment plus
+argument; they do not dispatch through the closure code field. A per-function
+allocation local is safe because environment fields are atoms, not effectful
+nested expressions. Higher-order `Closure_call`, tuples/field projections,
+variants/payloads, joins/jumps/switches/match failures, and concat are rejected
+with primary source spans. The gate is conservative over all emitted function
+bodies, including unused ones; no dead-code or return-code-index analysis is
+claimed. In particular, later stages of general curried applications may still
+require the pending indirect-call feature.
+
+### Embedded assets, assembly, and CLI
+
+Dune generates `Runtime_assets` directly from `runtime/runtime.wat` and
+`runtime/run.mjs`, using quoted OCaml strings. These are the same runtime/host
+definitions validated by their own suite, not forked copies maintained in the
+backend. The generated module stays under `_build`, while the CLI/library embeds
+its contents. A moved executable can build/run without finding repository assets
+relative to cwd or reading a guessed source-tree path.
+
+`Wasm_build.emit` composes lower → close → WAT. The file/process boundary then
+creates an owned directory under supplied TMPDIR (or project-local fallback),
+writes WAT, runs `wasm-tools parse`, then `wasm-tools validate` with checked exit
+statuses. Tools are invoked as argv arrays, not through shell interpolation;
+paths with spaces are supported. Captured assembler/validator logs become a build
+diagnostic on failure. Rayon threads are bounded to two. `build` copies only a
+validated binary to an owned temporary file beside the requested output and
+atomically renames it; previous output survives every prepublication failure.
+Same-input/hardlink output is rejected. Cleanup removes WAT, binary, host, and
+logs on both success and failure; build returns no implicit WAT sidecar.
+
+`ternc build file.tern -o out.wasm` requires an explicit output. Default `ternc
+run file.tern` assembles/validates in scratch, writes the embedded host there,
+then runs Node with inherited stdout/stderr and propagates failure status. Source
+output streams normally and survives a later trap. Front-end warnings/errors
+retain their prior behavior. `--interp` and `--ir` still select the AST and
+converted references; supplying both is an argument error. Dump-IR behavior is
+unchanged. Node's executable-entry detection now resolves symlinks, fixing an
+actual Dune sandbox case where a linked runner previously returned without
+calling `_start`; a runtime regression exercises linked invocation.
+
+### Verification and limits
+
+Phase expectations exercise source-function names/direct calls, integer machine
+operations, passive UTF-8 data, actual assembly/validation/Node execution at int32
+boundaries, false/unselected branches, conditional result continuations, recursive
+direct calls, explicit remainder-overflow guards, stable output, and located
+unsupported-feature failures. The real-command corpus compiles examples 01, 02,
+03, 05, 06, 07, and 08, validates the artifacts, runs them through the public Node
+script, and compares byte-for-byte with both `.out` and default compiled run.
+Other CLI checks cover relocated assets, output paths with spaces, input-file
+protection, atomic failure preservation, scratch cleanup, and an assembler stub
+that returns an invalid binary so the independent validation step must reject it.
+
+No claims are made for the rest of the example corpus under Wasm yet. All 15
+still execute through the established AST/ANF/closed interpreter tests. General
+closures/data/matches and runtime source-error mapping remain later work; the
+runtime remains bump-only with no GC. No new dependency, service, global setting,
+hardware operation, or host socket is used.
+
+Verified results for this turn: `scripts/check.sh` passes the native build, all
+phase/Cram tests, 27 infrastructure/static contracts, the 16 runtime tests, and
+formatting. The 10 new backend expectations and the 7-example compiled corpus
+pass with real wasm-tools assembly/validation and Node execution. All four invalid
+division/remainder operand cases fail without stdout, and the partial-output case
+retains its prefix. The Node runtime suite also verifies symlinked invocation and
+library import from stdin. AFT still has no authoritative OCaml/JS diagnostics
+in this workspace; the real build, validator, and execution results are the gate.

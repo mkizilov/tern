@@ -6,7 +6,8 @@ Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
 warnings. AST and ANF interpreters, ANF lowering, and decision-tree match
 compilation and closure conversion are implemented. A hand-written Wasm runtime
-and Node host are available; compiler WebAssembly generation is not implemented yet.
+and Node host are available. Part-1 WebAssembly generation supports numeric and
+boolean control flow, direct calls, and printing; remaining features are pending.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -217,9 +218,9 @@ dune exec ternc -- run --interp examples/01_hello.tern
 dune exec ternc -- run --interp examples/15_list_library.tern
 ```
 
-The reference command is `ternc run --interp FILE.tern`. Running requires exactly
-one of `--interp` (AST) or `--ir` (ANF), since no compiled backend exists. The
-complete front end succeeds before execution starts. Warnings go to stderr and do not prevent running;
+The reference command is `ternc run --interp FILE.tern`; `--ir` selects the
+converted interpreter. Without either flag, run now compiles and executes Wasm.
+The complete front end succeeds before execution starts. Warnings go to stderr and do not prevent running;
 syntax, resolution, or typing errors prevent every source effect. Success returns
 0, source/runtime/read errors return 1, and argument errors return 2.
 
@@ -334,6 +335,38 @@ A module must export `memory` and a callable `_start`; its imports are
 `tern.print_int(i32)` and `tern.print_string(i32 pointer, i32 byte_length)`.
 Output is raw bytes with no implicit newline. Failures return status 1 and
 diagnostics on stderr, preserving prior stdout; argument errors return 2.
-The runtime by itself intentionally has no `_start`. This turn does not add
-`ternc` Wasm emission: runner tests use explicitly hand-written WAT fixtures,
-not falsely claimed compiled output from the Tern example corpus.
+The runtime by itself intentionally has no `_start`. Runtime-unit tests use
+explicit handwritten WAT fixtures; separate backend tests now compile and run
+the supported Tern corpus listed below.
+
+## Build and run Wasm (part 1)
+
+```sh
+dune exec ternc -- build examples/07_factorial.tern -o factorial.wasm
+node runtime/run.mjs factorial.wasm
+dune exec ternc -- run examples/08_mutual_recursion.tern
+```
+
+`ternc build FILE.tern -o FILE.wasm` emits WAT, assembles it with `wasm-tools
+parse`, validates it with `wasm-tools validate`, then atomically publishes only
+the validated binary. A failed check, unsupported feature, assembler, or validator
+does not replace an existing output. Building over the input source is rejected.
+`ternc run FILE.tern` uses the same compiler and embedded Node host, with no
+persistent build artifacts. Put `.tools/bin` on PATH when invoking the executable
+directly; `scripts/check.sh` already selects the local tools. The binary embeds
+its WAT runtime and host source and does not depend on the launch directory.
+
+The backend preserves all signed int32 values, wrapping arithmetic, signed
+comparisons, booleans/short-circuiting, `if` block values, `let`, unit sequencing,
+direct/recursive calls, integer printing, and UTF-8 string-literal printing.
+Readable WAT is available through the reusable `Wat.program`/`Wasm_build.emit`
+APIs, including comments naming source functions. Build keeps no implicit WAT
+sidecar; temporary WAT and execution files are cleaned.
+
+Examples **01, 02, 03, 05, 06, 07, and 08** compile, validate, run, and match their
+`.out` bytes under both the public build/Node path and default run. Indirect
+closure calls, tuples/projections, variants, matching, and string concatenation
+receive explicit located part-1 diagnostics. Compiler-generated environments and
+closure records are supported to implement direct calls, but that is not yet
+general higher-order application support. Native/runtime failures preserve prior
+stdout; Node currently reports traps without Tern source-location mapping.

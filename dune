@@ -24,6 +24,8 @@
   lib/free_vars.ml
   lib/closure_convert.ml
   lib/closed_interp.ml
+  lib/wat.ml
+  lib/wasm_build.ml
   bin/dune
   bin/ternc.ml
   test/dune
@@ -33,6 +35,8 @@
   test/interp_cli.t
   test/anf_tests.ml
   test/closure_tests.ml
+  test/wat_tests.ml
+  test/wasm_cli.t
   test/ir_cli.t
   test/cli.t
   dune-project

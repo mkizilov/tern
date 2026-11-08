@@ -22,11 +22,11 @@ Output already written survives a runtime error; diagnostics stay on stderr.
   $ cmp expected.out partial.out
   $ test -s runtime.err
 
-The interpreter flag is explicit while no compiled backend exists.
+Default run compiles the same supported program and retains output on a trap.
 
   $ ternc run failure.tern > no-run.out 2> no-run.err
-  [2]
-  $ test ! -s no-run.out
+  [1]
+  $ cmp expected.out no-run.out
 
 Ill-typed code is rejected before any effect, including preceding declarations.
 

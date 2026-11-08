@@ -1,10 +1,11 @@
 open Tern
 
-type command = Checking | Interpreting | Dumping_ir
+type command = Checking | Interpreting | Dumping_ir | Building
 
 let usage =
   "Usage: ternc check [--types] FILE.tern\n\
-  \       ternc run (--interp | --ir) FILE.tern\n\
+  \       ternc build FILE.tern -o FILE.wasm\n\
+  \       ternc run [--interp | --ir] FILE.tern\n\
   \       ternc dump-ir [--closed] FILE.tern"
 
 let run command arguments =
@@ -12,6 +13,7 @@ let run command arguments =
   let interp = ref false in
   let ir = ref false in
   let closed = ref false in
+  let output = ref None in
   let filename = ref None in
   let anonymous file =
     match !filename with
@@ -30,10 +32,18 @@ let run command arguments =
         ]
     | Dumping_ir ->
         [ ("--closed", Arg.Set closed, " print closure-converted IR") ]
+    | Building ->
+        [
+          ( "-o",
+            Arg.String (fun file -> output := Some file),
+            " write validated Wasm" );
+        ]
   in
   Arg.parse_argv arguments options anonymous usage;
-  if command = Interpreting && !interp = !ir then
-    raise (Arg.Bad ("run requires exactly one of --interp or --ir\n" ^ usage));
+  if command = Interpreting && !interp && !ir then
+    raise (Arg.Bad ("run accepts at most one of --interp or --ir\n" ^ usage));
+  if command = Building && !output = None then
+    raise (Arg.Bad ("build requires -o FILE.wasm\n" ^ usage));
   let file =
     match !filename with
     | Some file -> file
@@ -65,19 +75,27 @@ let run command arguments =
                    Closed_pretty.program (Closure_convert.program ir)
                  else Ir_pretty.program ir);
               0
+          | Building -> (
+              match Wasm_build.build ~output:(Option.get !output) checked with
+              | Ok () -> 0
+              | Error diagnostic -> report lookup diagnostic)
           | Interpreting -> (
               let write text =
                 output_string stdout text;
                 flush stdout
               in
               let result =
-                if !interp then Interp.program ~write checked
-                else
-                  Ir_interp.closed ~write
-                    (Closure_convert.program (Lower.program checked))
+                if !interp then
+                  Result.map (fun () -> 0) (Interp.program ~write checked)
+                else if !ir then
+                  Result.map
+                    (fun () -> 0)
+                    (Ir_interp.closed ~write
+                       (Closure_convert.program (Lower.program checked)))
+                else Wasm_build.run checked
               in
               match result with
-              | Ok () -> 0
+              | Ok status -> status
               | Error diagnostic -> report lookup diagnostic)))
   | exception Sys_error message ->
       let position : Ast.position = { line = 1; column = 0; byte_offset = 0 } in
@@ -95,6 +113,7 @@ let () =
       | _ :: "check" :: arguments -> run Checking arguments
       | _ :: "run" :: arguments -> run Interpreting arguments
       | _ :: "dump-ir" :: arguments -> run Dumping_ir arguments
+      | _ :: "build" :: arguments -> run Building arguments
       | [ _; ("--help" | "-help") ] ->
           print_endline usage;
           0

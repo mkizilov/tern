@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { instantiate } from './run.mjs';
@@ -247,6 +247,11 @@ test('real Node runner instantiates and invokes a hand-written _start fixture', 
   assert.equal(result.status, 0, result.stderr.toString());
   assert.deepEqual(result.stdout, Buffer.from('-2147483648é\n'));
   assert.equal(result.stderr.length, 0);
+  const alias = join(scratch, 'linked-runner.mjs');
+  symlinkSync(join(directory, 'run.mjs'), alias);
+  const linked = spawnSync(process.execPath, [alias, compiled.filename]);
+  assert.equal(linked.status, 0, linked.stderr.toString());
+  assert.deepEqual(linked.stdout, result.stdout);
 });
 
 test('runner errors preserve partial stdout and return nonzero separately on stderr', () => {
@@ -283,4 +288,9 @@ test('runner checks imported memory ranges and required exports', async () => {
   const usage = spawnSync(process.execPath, [join(directory, 'run.mjs')]);
   assert.equal(usage.status, 2);
   assert.equal(usage.stdout.length, 0);
+  const imported = spawnSync(process.execPath, ['--input-type=module', '-'], {
+    input: `await import(${JSON.stringify(new URL('./run.mjs', import.meta.url).href)});`,
+  });
+  assert.equal(imported.status, 0, imported.stderr.toString());
+  assert.equal(imported.stdout.length, 0);
 });
