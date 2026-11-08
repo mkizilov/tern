@@ -3,4 +3,9 @@
  (public_name ternc)
  (libraries sedlex)
  (preprocess
-  (pps ppx_deriving.show sedlex.ppx)))
+  (pps ppx_deriving.show ppx_deriving.eq sedlex.ppx)))
+
+(menhir
+ (modules grammar)
+ (flags --strict)
+ (explain true))

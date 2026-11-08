@@ -178,6 +178,9 @@ is a runtime error. Redundant arms should warn. Match errors carry source
 locations; they must never become unchecked memory access in compiled code.
 Parenthesize nested `match` expressions in arm bodies to make arm boundaries
 explicit; without parentheses, an arm belongs to the innermost open `match`.
+Constructor payload patterns are atomic: parenthesize a payload that is itself
+a constructor application (`Some (Some x)`). Tuple payloads already use
+parentheses. There are no unparenthesized comma expressions or trailing commas.
 
 ## Static typing
 
@@ -236,3 +239,9 @@ The fifteen self-contained programs in `examples/` progress from hello world to
 a user-defined list library. `examples/README.md` maps each file to its coverage.
 Expected output is a specification fixture until the interpreter and compiler
 exist; infrastructure tests do not pretend to execute Tern.
+
+The Menhir parser and source printer now consume this syntax. Printing drops
+comments, normalizes whitespace, desugars function-binding shorthand into unary
+`fun`, and adds explicit parentheses. Parsing the printed form must preserve
+the entire AST except source spans; neither parsing nor printing implies that
+the program is well-typed or executable yet.

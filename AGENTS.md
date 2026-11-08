@@ -19,8 +19,8 @@ Extend this file with the project's language-specific architecture and verificat
 ## OCaml architecture and local tools
 
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
-  The target compiler is `ternc`. The AST, tokens, and lexer live in `lib/`;
-  parser and later phases are not implemented yet.
+  The target compiler is `ternc`. The AST, tokens, lexer, Menhir parser, and
+  source printer live in `lib/`; resolution and later phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -28,6 +28,11 @@ Extend this file with the project's language-specific architecture and verificat
   scalar columns, exclusive ends, and byte offsets. Sedlex already counts LF;
   explicitly count lone CR only. Lexer minus tokens stay separate from integer
   magnitudes; preserve the parser contract for `-2147483648`.
+- `Parse.program` is the source-to-AST boundary. Keep Menhir `--strict` enabled;
+  resolve conflicts with meaningful rules/precedence, never warning suppression.
+  Do not commit generated parser files or `.conflicts` build artifacts.
+- `Pretty.program` emits canonical reparsable source. `Ast.equal_program`
+  ignores all located spans but compares syntax; use it for round-trip tests.
 - OCaml 5.5.2 is selected for the project-local `_opam/` switch. Run
   `scripts/setup.sh` for local opam, dependencies, and pinned wasm-tools.
   Preserve the supplied project-local environment. `DESIGN.md` records host

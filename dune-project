@@ -6,6 +6,8 @@
 
 (generate_opam_files true)
 
+(using menhir 3.0)
+
 (package
  (name ternc)
  (synopsis "Tern functional language compiler targeting WebAssembly")

@@ -5,8 +5,8 @@
 The compiler is named `ternc`; its inputs are `.tern` files and its eventual
 output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
 contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
-the AST, token vocabulary, and lexer; there is no executable stub, parser,
-interpreter, or backend yet.
+the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
+there is no executable stub, resolver, type inference, interpreter, or backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -213,3 +213,74 @@ Selected span fixture arithmetic was independently checked with Python, not by
 executing or reimplementing the lexer. AFT diagnostics were partial because
 `ocamllsp` is absent; call-graph inspection also reported OCaml as unindexed,
 so the local helper call site was checked with indexed text search instead.
+
+## Implemented parser and source printer (Prompt 3)
+
+`grammar.mly` is the sole grammar, generated through Dune's Menhir 3.0 extension
+with type inference, `--strict`, and conflict explanations enabled. Generated
+parser/automaton files stay under `_build/`. `Parse.program ~file source` adapts
+`Token.t` to the generated terminal type and returns a located `Ast.program`,
+`Parse.Lexical`, or `Parse.Syntax`. Original token spans travel as semantic
+payloads, preserving both Unicode-scalar columns and byte offsets without
+trying to encode both in a single `Lexing.position`. Unexpected tokens use the
+last supplied token's span; semantic integer/recursive-binding errors use their
+own exact spans. No resolver or type-checker runs during parsing.
+
+Application uses a structural left-recursive rule over atoms. Binary operators
+are inlined so each production inherits its actual terminal precedence;
+comparison operators are non-associative. Unary negation binds below application
+and above multiplication. Control-expression productions have lower precedence
+than sequencing/operators, keeping their bodies greedy as specified. Match arms
+have explicit right-recursive rules: reducing a finished arm/list has lower
+precedence than a new bar or an operator. Consequently a bare bar extends the
+innermost match, while a parenthesized match permits the next outer arm. These
+are explicit language decisions, not arbitrary conflict resolutions; no warning
+suppression flags are used. An unused match-expression precedence annotation
+was removed during grammar analysis.
+
+`Parse_support` centralizes node-span joining, shorthand desugaring, and the
+signed-literal boundary. Unsigned integer atoms remain pending magnitudes until
+a syntactic parent forces them into `int32` AST literals. Direct unary minus
+can consume `2147483648`; a positive or parenthesized extra magnitude is rejected.
+Negative literals normalize to signed `Ast.Int`, while negating a parenthesized
+expression remains `E_unary`. Patterns/bindings distinguish irrefutable binding
+patterns from general match patterns. Recursive groups syntactically require
+names with function bodies. Tuples have at least two elements; types have
+postfix application, flat products, and right-associative arrows.
+
+`Pretty.program` produces canonical source, not original formatting/comments.
+Compound expressions and constructor payload patterns are parenthesized so
+operator, application, sequence, and match scopes cannot change on reparsing.
+The printer uses only Tern's five supported string escapes, preserving UTF-8
+bytes; OCaml `%S` would introduce unsupported decimal escapes. Function binding
+shorthand prints as explicit curried lambdas. A parenthesized operand preserves
+the distinction between a negative literal and an `E_unary` node. Type expressions
+are parenthesized deliberately rather than relying on minimal-parenthesis logic.
+
+`ppx_deriving.eq` adds syntax equality to the AST. The generic located wrapper's
+span field has a custom always-true comparator, so `Ast.equal_program` ignores
+spans at every depth, including names and operators, without erasing syntax or
+serializing ASTs. Standalone position/span equality remains exact. The parser
+expectation suite checks precedence/associativity, applications, nested controls,
+the two nested-match interpretations, patterns/types, integer boundaries, UTF-8
+spans, errors, empty files, and all 15 examples. Each corpus file must survive
+parse → print → reparse with syntax equality; canonical output must also be
+idempotent. Changing a literal must fail equality even when spans are ignored.
+
+### Prompt 3 verification limitation
+
+Setup was retried: curl again exited 6 resolving `github.com`, so no native
+OCaml/Menhir/Dune toolchain was installed. Native parser generation, conflict
+warnings, OCaml compilation, expectation/round-trip execution, opam regeneration,
+and formatting remain unverified. AFT also lacks `ocamllsp` diagnostics.
+
+As supplemental analysis, a temporary Python standard-library checker extracted
+the grammar alternatives, expanded list/option/inline rules, propagated LALR(1)
+lookaheads, and applied the declared precedence rules. The final grammar had
+100 productions, 180 states, 301 precedence-resolved action entries, zero
+unresolved entries, and no unused explicit precedence annotations in that model.
+Its formal parser accepted token streams for all 15 examples and six additional
+syntax cases. This is **not** a Menhir run, OCaml semantic-action execution, or
+evidence that the authored expectation snapshots passed. The helper is scratch
+analysis and is removed before handoff. The existing 14 Python infrastructure
+regressions and Git whitespace checks passed; these do not execute the compiler.
