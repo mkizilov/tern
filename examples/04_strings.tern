@@ -1,0 +1,2 @@
+let language = "Tern";;
+let () = print_string ("Hello, " ^ language ^ "!\n" ^ "\"quoted\"\t\\\n");;

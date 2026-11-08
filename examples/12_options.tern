@@ -1,0 +1,8 @@
+type 'a option = None | Some of 'a;;
+let map_option f value = match value with | None -> None | Some x -> Some (f x);;
+let value_or fallback value = match value with | None -> fallback | Some x -> x;;
+let () =
+  print_int (value_or 0 (map_option (fun x -> x + 1) (Some 41)));
+  print_string " ";
+  print_int (value_or 7 None);
+  print_string "\n";;

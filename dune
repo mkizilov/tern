@@ -1,0 +1,10 @@
+(rule
+ (alias runtest)
+ (deps
+  (source_tree scripts)
+  (source_tree examples)
+  dune-project
+  ternc.opam
+  .ocamlformat)
+ (action
+  (run python3 %{dep:tests/test_project.py})))

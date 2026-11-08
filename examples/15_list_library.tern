@@ -1,0 +1,41 @@
+type 'a list = Nil | Cons of ('a * 'a list);;
+
+let rec map f xs =
+  match xs with
+  | Nil -> Nil
+  | Cons (x, rest) -> Cons (f x, map f rest);;
+
+let rec filter predicate xs =
+  match xs with
+  | Nil -> Nil
+  | Cons (x, rest) ->
+    if predicate x then Cons (x, filter predicate rest)
+    else filter predicate rest;;
+
+let rec fold f accumulator xs =
+  match xs with
+  | Nil -> accumulator
+  | Cons (x, rest) -> fold f (f accumulator x) rest;;
+
+let rec print_list xs =
+  match xs with
+  | Nil -> ()
+  | Cons (x, rest) ->
+    print_int x;
+    (match rest with | Nil -> () | Cons _ -> print_string " ");
+    print_list rest;;
+
+let numbers = Cons (1, Cons (2, Cons (3, Cons (4, Cons (5, Nil)))));;
+let doubled = map (fun x -> x * 2) numbers;;
+let large = filter (fun x -> x > 5) doubled;;
+let total = fold (fun acc x -> acc + x) 0 large;;
+let words = map (fun x -> if x > 2 then "big" else "small") numbers;;
+let () =
+  print_list doubled;
+  print_string "\n";
+  print_list large;
+  print_string "\n";
+  print_int total;
+  print_string "\n";
+  print_string (fold (fun acc word -> acc ^ word ^ " ") "" words);
+  print_string "end\n";;

@@ -1,0 +1,15 @@
+type 'a option = None | Some of 'a;;
+type 'a list = Nil | Cons of ('a * 'a list);;
+let classify value =
+  match value with
+  | Some (Cons ((0, _), _)) -> "zero pair"
+  | Some (Cons ((_, true), Nil)) -> "single true pair"
+  | Some _ -> "other list"
+  | None -> "missing";;
+let () =
+  print_string (classify (Some (Cons ((0, false), Nil))));
+  print_string "\n";
+  print_string (classify (Some (Cons ((9, true), Nil))));
+  print_string "\n";
+  print_string (classify None);
+  print_string "\n";;

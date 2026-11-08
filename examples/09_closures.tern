@@ -1,0 +1,5 @@
+let offset = 100;;
+let make_adder x = fun y -> offset + x + y;;
+let add_seven = make_adder 7;;
+let offset = 900;;
+let () = print_int (add_seven 35); print_string "\n";;

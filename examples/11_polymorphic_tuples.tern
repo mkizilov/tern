@@ -1,0 +1,5 @@
+let id x = x;;
+let swap (x, y) = (y, x);;
+let pair = (id 42, id true);;
+let (flag, number) = swap pair;;
+let () = if flag then (print_int number; print_string "\n") else print_string "no\n";;

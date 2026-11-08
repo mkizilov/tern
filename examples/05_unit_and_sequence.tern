@@ -1,0 +1,7 @@
+let announce () = print_string "start\n";;
+let () =
+  let () = announce () in
+  let ignored = () in
+  let () = ignored in
+  print_int 42;
+  print_string "\ndone\n";;

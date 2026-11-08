@@ -1,0 +1,15 @@
+type ('a, 'b) result = Ok of 'a | Error of 'b;;
+type 'a tree = Leaf of 'a | Branch of ('a tree * 'a tree);;
+let rec sum tree =
+  match tree with
+  | Leaf n -> n
+  | Branch (left, right) -> sum left + sum right;;
+let report result =
+  match result with
+  | Ok n -> print_int n
+  | Error message -> print_string message;;
+let () =
+  report (Ok (sum (Branch (Leaf 10, Branch (Leaf 20, Leaf 12)))));
+  print_string "\n";
+  report (Error "no tree");
+  print_string "\n";;

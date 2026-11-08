@@ -1,0 +1,3 @@
+let x = 10;;
+let answer = let x = x + 1 in let y = 2 in x * y;;
+let () = print_int answer; print_string " "; print_int x; print_string "\n";;

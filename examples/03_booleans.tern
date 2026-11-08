@@ -1,0 +1,6 @@
+let safe = false && (1 / 0 = 0);;
+let ready = true || (1 / 0 = 0);;
+let () =
+  if ready && (if safe then false else true)
+  then print_string "ready\n"
+  else print_string "not ready\n";;

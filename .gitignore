@@ -4,3 +4,5 @@
 .venv/
 _opam/
 .DS_Store
+_build/
+*.install

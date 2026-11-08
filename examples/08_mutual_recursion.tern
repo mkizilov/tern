@@ -1,0 +1,8 @@
+let rec even n = if n = 0 then true else odd (n - 1)
+and odd n = if n = 0 then false else even (n - 1);;
+let () =
+  (if even 12 then print_string "even\n" else print_string "odd\n");
+  (if odd 7 then print_string "odd\n" else print_string "even\n");
+  let rec up n = if n = 0 then 0 else down (n - 1)
+  and down n = if n = 0 then 1 else up (n - 1)
+  in print_int (up 3); print_string "\n";;
