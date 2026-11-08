@@ -8,14 +8,30 @@ type error_kind =
   | Invalid_utf8
 [@@deriving show { with_path = false }]
 
-type error = { kind : error_kind; span : Ast.span }
+type error = Diagnostic.t
 [@@deriving show { with_path = false }]
 
-exception Error of error
+exception Error = Diagnostic.Raised
 
 type t = { lexbuf : Sedlexing.lexbuf }
 
-let fail kind span = raise (Error { kind; span })
+let fail kind span =
+  let message, notes =
+    match kind with
+    | Unterminated_string ->
+        "unterminated string", [ "close the string with a double quote" ]
+    | Unterminated_comment ->
+        "unterminated comment", [ "close every nested comment with `*)`" ]
+    | Invalid_escape escape ->
+        Printf.sprintf "invalid escape %S" escape,
+        [ "valid escapes are \\n, \\r, \\t, \\\", and \\\\" ]
+    | Control_character code -> Printf.sprintf "control character U+%04X" code, []
+    | Invalid_character character -> Printf.sprintf "invalid character %S" character, []
+    | Integer_out_of_range ->
+        "integer out of range", [ "Tern integers range from -2147483648 to 2147483647" ]
+    | Invalid_utf8 -> "invalid UTF-8", [ "source files must be valid UTF-8" ]
+  in
+  Diagnostic.fail ~notes span message
 
 let validate_utf8 ~file source =
   let length = String.length source in

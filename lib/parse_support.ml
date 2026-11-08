@@ -10,7 +10,7 @@ let name (token : Token.t) =
       node token.span value
   | _ -> assert false
 
-let error span message = raise (Parse_error.Error { message; span })
+let error span message = Diagnostic.fail span message
 
 type expression = Magnitude of int64 located | Expr of expr
 

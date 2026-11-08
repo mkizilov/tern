@@ -6,7 +6,8 @@ The compiler is named `ternc`; its inputs are `.tern` files and its eventual
 output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
 contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
 the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
-there is no executable stub, resolver, type inference, interpreter, or backend yet.
+Prompt 4 adds unified, rendered diagnostics and parser-state messages. There is
+no executable stub, resolver, type inference, interpreter, or backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -177,9 +178,9 @@ The AST models curried unary lambdas/applications, recursive binding groups,
 conditionals, tuples, matches, sequencing, and parametric variants. No parsing
 or semantic validation is performed by these data types.
 
-`Token.kind` is independent of a future Menhir parser. `Lexer.lex ~file source`
-returns all located tokens including a zero-width EOF, or `Error` containing an
-error kind and span. `Lexer.create` and `Lexer.next` also support incremental
+`Token.kind` is independent of the generated Menhir terminal type.
+`Lexer.lex ~file source` returns all located tokens including a zero-width EOF,
+or `Error` containing a `Diagnostic.t`. `Lexer.create` and `Lexer.next` also support incremental
 token consumption; they raise `Lexer.Error` for lexical failures. Input is a
 UTF-8 string and is eagerly validated with OCaml's standard Unicode decoder so
 malformed bytes never escape as an unlocated Sedlex exception. Token recognition
@@ -219,8 +220,8 @@ so the local helper call site was checked with indexed text search instead.
 `grammar.mly` is the sole grammar, generated through Dune's Menhir 3.0 extension
 with type inference, `--strict`, and conflict explanations enabled. Generated
 parser/automaton files stay under `_build/`. `Parse.program ~file source` adapts
-`Token.t` to the generated terminal type and returns a located `Ast.program`,
-`Parse.Lexical`, or `Parse.Syntax`. Original token spans travel as semantic
+`Token.t` to the generated terminal type and returns a located `Ast.program`
+or a `Diagnostic.t` (unified in Prompt 4). Original token spans travel as semantic
 payloads, preserving both Unicode-scalar columns and byte offsets without
 trying to encode both in a single `Lexing.position`. Unexpected tokens use the
 last supplied token's span; semantic integer/recursive-binding errors use their
@@ -284,3 +285,92 @@ syntax cases. This is **not** a Menhir run, OCaml semantic-action execution, or
 evidence that the authored expectation snapshots passed. The helper is scratch
 analysis and is removed before handoff. The existing 14 Python infrastructure
 regressions and Git whitespace checks passed; these do not execute the compiler.
+
+## Diagnostics and parser-state messages (Prompt 4)
+
+`Diagnostic.t` is the common compiler error value: severity (`Error`, `Warning`,
+or `Note`), a message, primary span, secondary spans with optional labels, and
+notes. `Diagnostic.Raised` transports failures inside phases; `Lexer.Error` is
+an alias for that exception. `Lexer.lex` and `Parse.program` return the common
+value directly. Parser semantic checks use it too. The old parser error record
+and lexical/syntax wrapper variants were removed, rather than retaining two
+parallel error systems. Lexer cause variants only select messages/notes; they
+are not a second returned diagnostic record. Existing span regressions remain,
+with the new contextual messages replacing generic unexpected-token text.
+
+`Diagnostic.render ~source` is a plain-text, deterministic string renderer.
+`source` is an injected filename-to-optional-text function: the renderer never
+opens files implicitly. Each frame prints its location, numbered source line,
+and underline; primary frames use carets, secondary frames use dashes and optional
+labels. Long multiline spans show the first and last lines with an elision marker.
+Exclusive end positions at column zero do not underline the next line. EOF gets
+at least one caret, including on a trailing empty line. Missing source/line
+context is reported explicitly. Displayed columns start at 1; source spans keep
+their existing scalar-column and byte-offset semantics.
+
+For display, tabs use four-column stops and scalar boundaries map to terminal
+columns. The new `uucp` dependency supplies Unicode terminal-width hints instead
+of duplicating risky width/category tables. Combining and wide characters are
+handled using those hints; terminal-specific shaping can still vary. Invalid
+UTF-8 bytes render as `\xNN`. Controls, format controls (including bidi controls),
+and Unicode line/paragraph separators are escaped, preventing terminal-control
+injection from source, filenames, labels, messages, or notes. ANSI sequences are
+only introduced by the renderer itself when color is explicitly enabled.
+
+`Diagnostic.emit` defaults to stdout, detects the actual channel's terminal
+status with the standard `Unix` library, and flushes output. Redirection disables
+color automatically; explicit color overrides support tests/callers. Pure
+rendering defaults to no color. No global color setting, subprocess, filesystem
+read, or host socket is involved.
+
+The parser now uses Menhir's incremental table backend (`menhirLib`, newly
+declared in dependency metadata). `Parse.program` preserves the last token's
+primary span and passes accurate byte-based `Lexing.position`s to checkpoints,
+while the original scalar/byte spans still travel as token semantic values.
+On `HandlingError`, `Grammar_messages.message` selects the state-specific text.
+An unmapped state gets an explicit unexpected-token/context message, never a bare
+"syntax error". Source semantic failures still carry their own exact spans.
+
+`lib/grammar.messages` contains 18 erroneous token sentences with messages for
+bindings, keywords, arrows, parentheses/tuples, comparisons, and types. Dune
+compiles it to `grammar_messages.ml` using the same strict/table automaton flags
+as the parser; the generated module is not committed. Menhir's `--compile-errors`
+checks final-token failure and irredundancy. After grammar changes, use
+`menhir --strict --table --list-errors lib/grammar.mly` and
+`menhir --strict --table --update-errors lib/grammar.messages lib/grammar.mly`
+inside the local opam environment to review coverage/update comments. Capture
+output only in project-local scratch files, review before replacing source,
+and remove scratch output afterward. Do not hard-code state numbers or suppress
+message-validation failures.
+
+A narrow `application_expr` alias is marked `%on_error_reduce`. Completing this
+atomic-expression promotion on an invalid lookahead lets an `if` condition and
+`match` subject reach distinct enclosing states (and thus say `then` versus
+`with`). It does not apply to binary-expression reductions, preserving the
+non-associative comparison rejection. No valid expression precedence was changed.
+
+`test/diagnostic_tests.ml` adds ten full rendered syntax-error snapshots and
+additional cases for lexer notes, cross-file labeled/unlabeled secondary spans,
+severities, multiline/EOF behavior, Unicode/tabs, malformed UTF-8, terminal escape
+safety, absent source context, forced color, and redirected emission. The
+existing lexer/parser tests still assert message locations and valid-program
+round trips; they now consume the common diagnostic API.
+
+### Prompt 4 verification limitation
+
+Setup was retried and curl again exited 6 resolving `github.com`. The local
+compiler switch remains absent, so native Menhir/message generation, OCaml
+compilation, all expectation snapshots, color emission, formatting, and opam
+regeneration remain unverified. `scripts/check.sh` still rejects the missing
+toolchain. AFT diagnostics are incomplete because `ocamllsp` and
+`pyright-langserver` are unavailable; indexed text search was used after the
+call-graph tool reported OCaml files unindexed.
+
+A temporary independent LALR checker validated the 18 message witnesses as
+distinct final-token errors in its 181-state model, including the new error-only
+reduction. It also confirmed rejection of comparison chains and acceptance of
+the 15 example token streams. This is supplemental grammar analysis, not a
+Menhir run or execution of OCaml semantic actions/renderers. The helper is
+removed before handoff. The standalone infrastructure suite now passes 15 tests,
+including the new message-generation/dependency wiring contract. Authored
+snapshots are not represented as observed native output.

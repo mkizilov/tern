@@ -1,11 +1,18 @@
 (library
  (name tern)
  (public_name ternc)
- (libraries sedlex)
+ (libraries sedlex menhirLib unix uucp)
  (preprocess
   (pps ppx_deriving.show ppx_deriving.eq sedlex.ppx)))
 
 (menhir
  (modules grammar)
- (flags --strict)
+ (flags --strict --table)
  (explain true))
+
+(rule
+ (target grammar_messages.ml)
+ (deps grammar.mly grammar.messages)
+ (action
+  (with-stdout-to %{target}
+   (run %{bin:menhir} --strict --table --compile-errors grammar.messages grammar.mly))))

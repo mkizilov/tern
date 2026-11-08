@@ -2,8 +2,8 @@
 
 Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
-Menhir parser, and source pretty-printer. Resolution, typing, interpretation,
-and WebAssembly generation are not implemented yet.
+Menhir parser, source pretty-printer, and unified diagnostics. Resolution,
+typing, interpretation, and WebAssembly generation are not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -35,7 +35,7 @@ they are not a substitute for building OCaml or executing Tern programs.
 
 `lib/ast.ml` defines located syntax nodes with derived printers. `lib/token.ml`
 defines the token vocabulary; `lib/lexer.ml` exposes `Lexer.lex ~file source`,
-returning located tokens (including EOF) or a structured lexical error.
+returning located tokens (including EOF) or a `Diagnostic.t`.
 `Lexer.create` / `Lexer.next` provide incremental token delivery and raise
 `Lexer.Error` on invalid input. The input is a UTF-8 string, validated at creation.
 Spans use 1-based lines, 0-based Unicode-scalar columns, exclusive ends, and
@@ -49,8 +49,8 @@ same shell DNS/toolchain limitation documented in `DESIGN.md`.
 
 ## Parser and source printer
 
-`Parse.program ~file source` returns a located `Ast.program` or a lexical/syntax
-error with its source span. It uses `lib/grammar.mly`, built with Menhir
+`Parse.program ~file source` returns a located `Ast.program` or a `Diagnostic.t`
+with its primary source span. It uses `lib/grammar.mly`, built with Menhir
 `--strict`; unresolved conflicts and unused precedence warnings are build
 failures, not suppressed warnings. The grammar handles application, operators,
 local/recursive bindings, nested matches, tuples/patterns, and parametric variants.
@@ -67,3 +67,39 @@ The parser expectation suite parses all 15 examples, prints/reparses each, and
 asserts span-free AST equality and stable printed output. It also tests syntax
 errors, integer edges, precedence, and the nested-match ambiguity. These new
 OCaml tests remain unexecuted here: native setup is still blocked by shell DNS.
+
+## Diagnostics
+
+Lexer, parser, and parser semantic errors share `Diagnostic.t`: severity, message,
+primary span, optionally labeled secondary spans, and notes. Low-level failures
+raise `Diagnostic.Raised` (`Lexer.Error` is an alias); the `Lexer.lex` and
+`Parse.program` result APIs return the same diagnostic type. The previous
+`Parse.Lexical`/`Parse.Syntax` wrappers and separate parser-error record are gone.
+
+Render without filesystem access by supplying source text explicitly:
+
+```ocaml
+Diagnostic.render ~color:false
+  ~source:(fun file -> if file = "example.tern" then Some source else None)
+  diagnostic
+```
+
+The result has a rustc-style severity/message header, `file:line:column`, source
+excerpt, and caret underline. Displayed columns are 1-based; AST columns remain
+0-based. Secondary frames, optional labels, and notes follow the primary frame.
+`Diagnostic.render` defaults to plain text for deterministic output;
+`Diagnostic.emit` writes to stdout by default and enables ANSI color only when
+its actual output channel is a terminal. Redirected output stays plain, unless
+color is explicitly forced.
+
+Tabs expand to four-column stops. `uucp` supplies terminal width hints for wide
+and combining Unicode characters, avoiding a home-grown Unicode table. Controls,
+formatting controls, and malformed bytes are escaped safely in excerpts. Long
+multiline spans show their first and last source lines with an elision marker.
+Source lookup failures are stated explicitly, never replaced with invented text.
+
+Parser errors use `lib/grammar.messages`, compiled into a state/message lookup
+by Dune with `menhir --compile-errors`. The incremental table backend requires
+`menhirLib`. Ten syntax-error snapshots plus renderer/lexer regression cases are
+in `test/diagnostic_tests.ml`. Native message compilation, snapshots, and color
+emission remain unverified while toolchain installation is blocked by shell DNS.

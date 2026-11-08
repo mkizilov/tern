@@ -15,13 +15,11 @@ let only_body source =
 let print_error source =
   match Parse.program ~file:"error.tern" source with
   | Ok _ -> print_endline "unexpected success"
-  | Error (Parse.Lexical error) ->
-      Printf.printf "lexical error at %d:%d\n" error.span.start_pos.line
-        error.span.start_pos.column
-  | Error (Parse.Syntax error) ->
+  | Error error ->
+      assert (error.severity = Diagnostic.Error);
       Printf.printf "%s at %d:%d-%d:%d\n" error.message
-        error.span.start_pos.line error.span.start_pos.column
-        error.span.end_pos.line error.span.end_pos.column
+        error.primary.start_pos.line error.primary.start_pos.column
+        error.primary.end_pos.line error.primary.end_pos.column
 
 let round_trip source =
   let original = parse ~file:"original.tern" source in
@@ -192,14 +190,14 @@ let%expect_test "syntax, range, and recursive-binding errors have locations" =
       "let x =\n @;;" ];
   [%expect
     {|
-    unexpected Eof at 1:9-1:9
-    unexpected Double_semicolon at 1:22-1:24
-    unexpected Less at 1:14-1:15
+    expected `;;` after top-level declaration at 1:9-1:9
+    expected `else` after the then branch at 1:22-1:24
+    comparison operators do not chain; parenthesize each comparison at 1:14-1:15
     positive integer literal exceeds 2147483647 at 1:8-1:18
     positive integer literal exceeds 2147483647 at 1:10-1:20
     recursive bindings require a name and a function at 1:8-1:13
-    unexpected And at 1:10-1:13
-    lexical error at 2:1
+    `and` requires a recursive binding group; use `let rec ... and ...` at 1:10-1:13
+    invalid character "@" at 2:1-2:2
     |}]
 
 let%expect_test "malformed tuples, patterns, and type declarations are rejected" =

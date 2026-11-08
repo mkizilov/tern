@@ -16,6 +16,8 @@
   (ocaml (and (>= 5.1) (< 6.0)))
   dune
   menhir
+  menhirLib
+  uucp
   (sedlex (>= 3.6))
   ppx_deriving
   ppx_expect

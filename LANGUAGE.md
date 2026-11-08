@@ -27,6 +27,9 @@ whitespace is ASCII space, tab, vertical tab, form feed, or a line break.
 Unterminated string/comment errors point to their opening delimiter (the
 outermost opening delimiter for nested comments). Other lexical errors point
 to the offending character or escape. Malformed UTF-8 is rejected before lexing.
+The diagnostic renderer displays columns starting at 1, without changing the
+internal 0-based span convention. It shows source excerpts with carets, optional
+secondary labels, and notes; warnings and errors retain distinct severities.
 
 ```tern
 (* A whole file. *)

@@ -3,6 +3,9 @@
  (deps
   (source_tree scripts)
   (source_tree examples)
+  lib/dune
+  lib/grammar.messages
+  lib/parse.ml
   dune-project
   ternc.opam
   .ocamlformat)

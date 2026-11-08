@@ -1,0 +1,71 @@
+program: LET EQUAL
+
+expected a binding pattern after `let`
+
+program: LET IDENTIFIER INTEGER
+
+expected `=` or a function parameter after the binding name
+
+program: LET IDENTIFIER EQUAL DOUBLE_SEMICOLON
+
+expected an expression after `=`
+
+program: LET IDENTIFIER EQUAL LET IDENTIFIER EQUAL INTEGER DOUBLE_SEMICOLON
+
+expected `in` after let binding
+
+program: LET IDENTIFIER EQUAL IF TRUE EOF
+
+expected `then` after the condition
+
+program: LET IDENTIFIER EQUAL IF TRUE THEN INTEGER DOUBLE_SEMICOLON
+
+expected `else` after the then branch
+
+program: LET IDENTIFIER EQUAL FUN IDENTIFIER EQUAL
+
+expected `->` after function parameters
+
+program: LET IDENTIFIER EQUAL MATCH IDENTIFIER EOF
+
+expected `with` after the match subject
+
+program: LET IDENTIFIER EQUAL MATCH IDENTIFIER WITH UNDERSCORE DOUBLE_SEMICOLON
+
+expected `->` after the match pattern
+
+program: LET IDENTIFIER EQUAL LPAREN INTEGER EOF
+
+expected `)` to close the expression, or `,` for a tuple
+
+program: LET IDENTIFIER EQUAL LPAREN INTEGER COMMA RPAREN
+
+expected a tuple element after `,`
+
+program: LET IDENTIFIER EQUAL INTEGER EOF
+
+expected `;;` after top-level declaration
+
+program: LET IDENTIFIER EQUAL INTEGER AND
+
+`and` requires a recursive binding group; use `let rec ... and ...`
+
+program: LET IDENTIFIER EQUAL INTEGER LESS INTEGER LESS
+
+comparison operators do not chain; parenthesize each comparison
+
+program: TYPE EQUAL
+
+expected a type name or type parameter after `type`
+
+program: TYPE IDENTIFIER EQUAL DOUBLE_SEMICOLON
+
+expected a variant constructor after `=`
+
+program: TYPE IDENTIFIER EQUAL CONSTRUCTOR OF DOUBLE_SEMICOLON
+
+expected a type after `of`
+
+program: INTEGER
+
+expected a top-level `let` or `type` declaration

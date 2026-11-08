@@ -14,18 +14,9 @@ let print_span (span : Ast.span) =
     span.end_pos.column span.start_pos.byte_offset span.end_pos.byte_offset
 
 let print_error (error : Lexer.error) =
-  let message =
-    match error.kind with
-    | Unterminated_string -> "unterminated string"
-    | Unterminated_comment -> "unterminated comment"
-    | Invalid_escape escape -> Printf.sprintf "invalid escape %S" escape
-    | Control_character code -> Printf.sprintf "control character U+%04X" code
-    | Invalid_character character -> Printf.sprintf "invalid character %S" character
-    | Integer_out_of_range -> "integer out of range"
-    | Invalid_utf8 -> "invalid UTF-8"
-  in
-  Printf.printf "%s at " message;
-  print_span error.span;
+  assert (error.severity = Diagnostic.Error);
+  Printf.printf "%s at " error.message;
+  print_span error.primary;
   print_newline ()
 
 let dump ?(positions = false) source =

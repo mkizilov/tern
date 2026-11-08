@@ -273,7 +273,8 @@ class RepositoryTests(unittest.TestCase):
         project = (ROOT / "dune-project").read_text()
         opam = (ROOT / "ternc.opam").read_text()
         for name in (
-            "ocaml", "dune", "menhir", "sedlex", "ppx_deriving", "ppx_expect",
+            "ocaml", "dune", "menhir", "menhirLib", "uucp", "sedlex",
+            "ppx_deriving", "ppx_expect",
             "qcheck", "js_of_ocaml", "js_of_ocaml-ppx", "ocamlformat",
         ):
             with self.subTest(package=name):
@@ -281,6 +282,19 @@ class RepositoryTests(unittest.TestCase):
                 self.assertIn(f'"{name}"', opam)
         self.assertIn("(generate_opam_files true)", project)
         self.assertIn("version=0.29.0", (ROOT / ".ocamlformat").read_text())
+
+    def test_diagnostic_message_generation_is_part_of_the_native_build(self):
+        dune = (ROOT / "lib" / "dune").read_text()
+        messages = (ROOT / "lib" / "grammar.messages").read_text()
+        parser = (ROOT / "lib" / "parse.ml").read_text()
+        self.assertIn("--strict --table", dune)
+        self.assertIn("--compile-errors grammar.messages grammar.mly", dune)
+        self.assertIn("(target grammar_messages.ml)", dune)
+        self.assertEqual(messages.count("program: "), 18)
+        self.assertIn("expected `in` after let binding", messages)
+        self.assertIn("Grammar_messages.message", parser)
+        self.assertIn("I.HandlingError", parser)
+        self.assertNotIn('"syntax error"', parser)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

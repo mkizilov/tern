@@ -21,6 +21,9 @@ open Parse_support
 %left STAR SLASH MOD
 %nonassoc NEGATE
 
+/* Finish atomic expressions before reporting a missing enclosing keyword. */
+%on_error_reduce application_expr
+
 %start <Ast.program> program
 %%
 
@@ -51,7 +54,7 @@ binding:
       binding pattern parameters body }
 
 expr:
-  expression = application { expression }
+  expression = application_expr { expression }
 | first = LET; group = binding_group; IN; body = expr %prec CONTROL
     { let flag, bindings = group in
       let body = finish body in
@@ -89,6 +92,9 @@ expr:
 | token = GREATER_EQUAL { node token.span Greater_equal }
 | token = AND_AND { node token.span And }
 | token = OR_OR { node token.span Or }
+
+application_expr:
+  expression = application { expression }
 
 application:
   expression = atom { expression }

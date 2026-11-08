@@ -34,6 +34,14 @@ Extend this file with the project's language-specific architecture and verificat
   Do not commit generated parser files or `.conflicts` build artifacts.
 - `Pretty.program` emits canonical reparsable source. `Ast.equal_program`
   ignores all located spans but compares syntax; use it for round-trip tests.
+- Use `Diagnostic.t` for all compiler errors, with a primary span, severity,
+  optional secondary labels, and notes. Supply source text to the renderer;
+  do not let rendering implicitly read arbitrary filenames. User-facing columns
+  are 1-based; internal spans remain 0-based and half-open.
+- Parser messages belong in `lib/grammar.messages`, compiled by Dune. Keep
+  message witnesses valid and non-redundant after grammar changes. Use the same
+  table-backend flags for generation and message compilation. Native compilation
+  validates the file; do not hard-code automaton state numbers in OCaml.
 - OCaml 5.5.2 is selected for the project-local `_opam/` switch. Run
   `scripts/setup.sh` for local opam, dependencies, and pinned wasm-tools.
   Preserve the supplied project-local environment. `DESIGN.md` records host
