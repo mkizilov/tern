@@ -10,7 +10,8 @@ Prompt 4 adds unified, rendered diagnostics and parser-state messages. Prompt 5
 adds resolution/desugaring into Core. Prompt 6 adds HM type inference and the
 `ternc check` command. Prompt 7 adds typed match usefulness/exhaustiveness warnings.
 Prompt 8 adds the checked-Core reference interpreter and `run --interp` command.
-There is no WebAssembly backend yet.
+Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
+`dump-ir`/`run --ir`. There is no WebAssembly backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -778,3 +779,109 @@ recursive environment wiring, and byte-for-byte corpus dependencies. Those
 contracts are not semantic execution. AFT lacks the required OCaml/Python language
 servers and treats Cram `.t` files as Perl; indexed search was used after the
 call-graph tool reported OCaml files unindexed. No sandbox boundary was bypassed.
+
+## ANF and decision-tree match lowering (Prompt 9)
+
+`Anf` is the new located A-normal representation. Atoms are source literals or
+resolved names. RHSs are aliases, unary calls, primitives over atom lists, tuple
+construction, constructor values, functions, field/payload reads, or a nested
+block. Blocks contain named lets, recursive function groups, atom returns,
+conditionals, multiway switches, local joins/jumps, and located failure leaves.
+No executable `Core.expr`/`Core.pattern` escapes into IR. Function and primitive
+arguments cannot contain expressions by construction of their OCaml types.
+Control blocks return atoms into a named result before the single continuation.
+This avoids the exponential continuation copying of a naive CPS normalizer.
+
+Core now exposes its first unused symbol ID as `next_id`. The resolver's native
+invariant walk checks it equals the successful Core binder count. Lowering starts
+its private allocator there, preserves source IDs, and allocates globally unique
+IDs for intermediate values, fields, payloads, and case labels. Calling lowering
+twice does not mutate checked Core or consume any persistent counter. Function
+bodies remain nested lexical closures; closure conversion is not implemented in
+this turn.
+
+`Lower.normalize` sequences callees, arguments, tuple fields, and operands through
+continuations in source evaluation order. Branch bodies normalize independently
+to atom returns, while the surrounding continuation runs only once after the
+chosen block. Type-checked irrefutable let patterns become aliases and named tuple
+projections. Unit/wildcard lets can discard an already-normalized RHS because
+typing has enforced any unit constraint; effects are not discarded or hoisted.
+
+### Prioritized match matrices and joins
+
+A match subject is normalized once. Each source case becomes one local join
+whose parameters are the case's original binder IDs, and whose action is lowered
+once. Rows carry remaining patterns, a join label, source parameter order, and
+bindings from source IDs to atom occurrences. The first row controls compilation:
+if all its remaining patterns are wildcard/binders, compilation jumps to its
+action. Otherwise the first refutable column in that row is moved to the front
+with all rows/occurrences, preserving first-case priority.
+
+Tuple columns specialize directly into named indexed field reads. Constructor
+and literal columns collect their distinct heads into one switch. Each branch
+specializes matching rows plus wildcard/binder rows, retaining original row order;
+the default keeps only wildcard/binder rows. A constructor payload read is inside
+its tag branch before deeper tuple/constructor/literal tests. Bindings record the
+original occurrence, so a bound whole-value fallback receives the whole variant,
+not its payload. Empty matrices become `fail "pattern match failed"` at the
+original match span. Column removal guarantees progress; types already establish
+tuple shape and constructor payload arity.
+
+These are decision trees, not repeated full-pattern tests. Shared case joins
+avoid cloning wildcard actions across branches (and duplicating source binder
+IDs). Join arguments are atoms and join parameters bind in the action's lexical
+environment. They are static control-flow labels, not first-class Tern functions;
+lowered user function bodies define their own join scopes. Original source cases,
+including unreachable ones, still have well-formed action bodies; warnings remain
+the type/coverage pass's responsibility.
+
+### Printing and interpretation
+
+`Ir_pretty.program` prints builtin names, explicit intermediate definitions,
+functions, blocks, joins, switches, jumps, projections, and failures. A tag switch
+appears as `switch-tag`, followed by its payload/field operations. `ternc dump-ir
+FILE.tern` runs the front end and lowering, then prints without source effects.
+`ternc run --ir FILE.tern` uses the new interpreter; run requires exactly one
+of `--interp` and `--ir`. Check behavior and non-fatal warning reporting remain.
+
+`Ir_interp` independently walks ANF. It evaluates named RHSs, returns values from
+blocks, captures case-action environments, binds jump arguments, dispatches switches
+through ordered key maps, and reads fields/payloads. Lambda evaluation resets
+join scope on a user function call. Recursive IR functions use the same tied
+lexical environment model as the AST interpreter. The IR interpreter never calls
+the AST evaluator or retries Core patterns.
+
+The former interpreter's runtime machinery was extracted to `Runtime`, with
+closure body representation as a type parameter. Both walkers share signed
+Int32 arithmetic/traps, constructor values, output built-ins, literal matching,
+write failures, and resource diagnostics. This avoids semantic drift without
+sharing control-flow evaluation. Resource usage can differ: block continuations
+in this initial IR interpreter are not a tail-call optimization pass, and host
+stack/allocation limits still apply. No performance benchmark is claimed.
+
+### Verification and remaining limitations
+
+Native IR tests enforce unique/in-scope definitions, atom-only operands,
+function-local labels, jump arity, nonnegative field indices, switch-key uniqueness,
+and tag-dominated payload reads. They snapshot simple ANF, check grouped constructor
+dispatch, and compare AST/IR output and error messages/spans for nested patterns,
+fallback binding, subject single evaluation, overlap priority, effects, closures,
+recursion, short-circuiting, literal switches, arithmetic traps, and missing cases.
+The 15-example loop requires AST output = IR output = exact `.out` bytes. A real
+CLI Cram loop repeats all comparisons and checks `dump-ir`/backend selection.
+
+The available Python suite passed 23 infrastructure/static-contract tests.
+Separately, a temporary independent decision-tree model matched a linear first-case
+oracle for 2,344 ordered boolean-product dispatches and 2,005 nested-variant
+dispatch/binding/projection-guard cases. This checks the modeled matrix strategy,
+not OCaml lowering, join evaluation, native snapshots, or actual example output.
+The scratch model is removed before handoff.
+
+Setup was retried: curl again exited 6 resolving `github.com`, the local switch
+is absent, and `scripts/check.sh` stopped at the missing-toolchain prerequisite.
+Native OCaml compilation, AST/IR interpreter execution, all differential/golden
+tests, CLI execution, formatting, and opam regeneration remain **unverified**.
+AFT still lacks OCaml/Python language servers and misclassifies Cram as Perl;
+call-graph inspection is unindexed for these OCaml files, so indexed text search
+was used. No global dependency installation, boundary bypass, service, hardware,
+or host socket was involved.

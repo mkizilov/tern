@@ -174,6 +174,7 @@ let verify (program : Core.program) =
   in
   expr value_environment program.value.body;
   let count = Ids.cardinal !definitions in
+  assert (program.value.next_id = count);
   assert (Ids.equal !definitions (Ids.of_list (List.init count Fun.id)));
   count
 

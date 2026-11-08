@@ -1,12 +1,13 @@
 open Tern
 
-type command = Checking | Interpreting
+type command = Checking | Interpreting | Dumping_ir
 
-let usage = "Usage: ternc check [--types] FILE.tern\n       ternc run --interp FILE.tern"
+let usage = "Usage: ternc check [--types] FILE.tern\n       ternc run (--interp | --ir) FILE.tern\n       ternc dump-ir FILE.tern"
 
 let run command arguments =
   let types = ref false in
   let interp = ref false in
+  let ir = ref false in
   let filename = ref None in
   let anonymous file =
     match !filename with
@@ -17,11 +18,14 @@ let run command arguments =
   let options =
     match command with
     | Checking -> [ "--types", Arg.Set types, " print top-level inferred types" ]
-    | Interpreting -> [ "--interp", Arg.Set interp, " use the reference interpreter" ]
+    | Interpreting ->
+        [ "--interp", Arg.Set interp, " use the reference interpreter";
+          "--ir", Arg.Set ir, " use the ANF interpreter" ]
+    | Dumping_ir -> []
   in
   Arg.parse_argv arguments options anonymous usage;
-  if command = Interpreting && not !interp then
-    raise (Arg.Bad ("run currently requires --interp\n" ^ usage));
+  if command = Interpreting && !interp = !ir then
+    raise (Arg.Bad ("run requires exactly one of --interp or --ir\n" ^ usage));
   let file =
     match !filename with
     | Some file -> file
@@ -46,9 +50,16 @@ let run command arguments =
           | Checking ->
               if !types then print_string (Infer.format_bindings checked.inferred);
               0
+          | Dumping_ir ->
+              print_string (Ir_pretty.program (Lower.program checked));
+              0
           | Interpreting ->
               let write text = output_string stdout text; flush stdout in
-              (match Interp.program ~write checked with
+              let result =
+                if !interp then Interp.program ~write checked
+                else Ir_interp.program ~write (Lower.program checked)
+              in
+              (match result with
               | Ok () -> 0
               | Error diagnostic ->
                   report lookup diagnostic)))
@@ -63,6 +74,7 @@ let () =
       match Array.to_list Sys.argv with
       | _ :: "check" :: arguments -> run Checking arguments
       | _ :: "run" :: arguments -> run Interpreting arguments
+      | _ :: "dump-ir" :: arguments -> run Dumping_ir arguments
       | _ :: ("--help" | "-help") :: [] -> print_endline usage; 0
       | _ -> prerr_endline usage; 2
     with

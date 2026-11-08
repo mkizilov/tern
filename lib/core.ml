@@ -89,6 +89,7 @@ and type_decl_desc = {
 type program = program_desc Ast.located
 
 and program_desc = {
+  next_id : int;
   builtins : (name * builtin) list;
   builtin_types : (name * builtin_type) list;
   types : type_decl list;

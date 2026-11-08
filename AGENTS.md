@@ -22,8 +22,9 @@ Extend this file with the project's language-specific architecture and verificat
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
   The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
   source printer, Core/resolver, HM inference, and typed match coverage live in
-  `lib/`, alongside the reference interpreter. `bin/ternc.ml` implements checking
-  and `run --interp`; WebAssembly phases are not implemented.
+  `lib/`, alongside AST/ANF interpreters and ANF lowering. `bin/ternc.ml` implements
+  checking, `dump-ir`, and `run --interp`/`run --ir`; WebAssembly phases are not
+  implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -65,6 +66,19 @@ Extend this file with the project's language-specific architecture and verificat
 - Run `dune exec ternc -- run --interp file.tern`. Native interpreter and CLI
   corpus tests compare every example with its `.out` byte-for-byte, without
   trimming. Runtime errors must preserve already-written stdout.
+- `Lower.program` accepts checked Core and produces `Anf.program`. RHS operands,
+  call/jump arguments, conditions, and returns are atoms; operation/control-flow
+  results are named. Fresh IDs begin at `Core.program.next_id`.
+- Match lowering is a prioritized pattern-matrix decision tree: tag switches
+  dominate payload reads, tuple projections are named, and case bodies are local
+  joins rather than duplicated branch continuations. Keep join labels local to
+  a function and preserve source binder IDs and evaluation order.
+- `Runtime` is the shared value/primitive/output contract, parameterized by
+  closure-body representation. AST and IR walkers must remain separate; the IR
+  interpreter must not fall back to Core pattern matching or Core evaluation.
+- Use `dune exec ternc -- dump-ir file.tern` or `run --ir`. Differential native
+  corpus tests require AST stdout = IR stdout = `.out` bytes, including failures'
+  partial output and source locations in focused regression cases.
 - Use `Diagnostic.t` for all compiler errors, with a primary span, severity,
   optional secondary labels, and notes. Supply source text to the renderer;
   do not let rendering implicitly read arbitrary filenames. User-facing columns

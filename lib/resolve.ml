@@ -314,5 +314,6 @@ let program (program : Ast.program) : (Core.program, Diagnostic.t) result =
   in
   try
     let body, types = declarations environment program.value in
-    Ok (node program.span { Core.builtins; builtin_types; types; body })
+    Ok (node program.span
+          { Core.next_id = context.next_id; builtins; builtin_types; types; body })
   with Diagnostic.Raised diagnostic -> Error diagnostic

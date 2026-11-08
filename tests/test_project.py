@@ -370,8 +370,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertNotIn("val evaluate", interface)
         self.assertIn("type checked = private", checked)
         self.assertIn("shared := recursive_environment", interpreter)
-        self.assertIn("Int32.div", interpreter)
-        self.assertIn("Int32.min_int", interpreter)
+        runtime = (ROOT / "lib" / "runtime.ml").read_text()
+        self.assertIn("Int32.div", runtime)
+        self.assertIn("Int32.min_int", runtime)
+        self.assertIn("open Runtime", interpreter)
 
     def test_native_interpreter_corpus_tests_use_out_files_without_trimming(self):
         tests = (ROOT / "test" / "interp_tests.ml").read_text()
@@ -384,6 +386,37 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("ternc run --interp", cli)
         self.assertIn('cmp "$expected" actual.out', cli)
         self.assertIn('test "$count" -eq 15', cli)
+
+    def test_anf_uses_atoms_and_lowers_every_core_expression(self):
+        core = (ROOT / "lib" / "core.ml").read_text()
+        anf = (ROOT / "lib" / "anf.ml").read_text()
+        lower = (ROOT / "lib" / "lower.ml").read_text()
+        forms = core.split("and expr_desc =", 1)[1].split("and recursive_binding =", 1)[0]
+        variants = set(re.findall(r"\|\s*(\w+)", forms))
+        normalization = lower.split("let rec normalize ", 1)[1].split("and atoms ", 1)[0]
+        handled = set(re.findall(r"\|\s*(?:Core\.)?(\w+)", normalization))
+        self.assertLessEqual(variants, handled)
+        self.assertIn("Apply of atom * atom", anf)
+        self.assertIn("Jump of Core.name * atom list", anf)
+        self.assertIn("Switch of atom", anf)
+        self.assertIn("Anf.Payload subject", lower)
+        self.assertIn("core.value.next_id", lower)
+
+    def test_ir_interpreter_and_differential_corpus_are_real_native_targets(self):
+        interpreter = (ROOT / "lib" / "ir_interp.ml").read_text()
+        tests = (ROOT / "test" / "anf_tests.ml").read_text()
+        cli = (ROOT / "test" / "ir_cli.t").read_text()
+        main = (ROOT / "bin" / "ternc.ml").read_text()
+        self.assertNotIn("Core.Match", interpreter)
+        self.assertNotIn("Interp.program", interpreter)
+        self.assertIn("Keys.find_opt", interpreter)
+        self.assertIn("Runtime.primitive", interpreter)
+        self.assertIn("Interp.program", tests)
+        self.assertIn("Ir_interp.program", tests)
+        self.assertIn("ast_output = expected && ir_output = expected", tests)
+        self.assertIn("ternc run --ir", cli)
+        self.assertIn("ternc dump-ir", cli)
+        self.assertIn("Lower.program checked", main)
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

@@ -4,8 +4,8 @@ Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
 Menhir parser, source pretty-printer, unified diagnostics, and name resolution
 to a smaller Core AST, Hindley–Milner type inference, and typed pattern-match
-warnings. A tree-walking reference interpreter is implemented; WebAssembly
-generation is not implemented yet.
+warnings. AST and ANF interpreters, ANF lowering, and decision-tree match
+compilation are implemented; WebAssembly generation is not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -214,9 +214,9 @@ dune exec ternc -- run --interp examples/01_hello.tern
 dune exec ternc -- run --interp examples/15_list_library.tern
 ```
 
-The public command is `ternc run --interp FILE.tern`; `--interp` is currently
-required because no compiled backend exists. The complete front end succeeds
-before execution starts. Warnings go to stderr and do not prevent running;
+The reference command is `ternc run --interp FILE.tern`. Running requires exactly
+one of `--interp` (AST) or `--ir` (ANF), since no compiled backend exists. The
+complete front end succeeds before execution starts. Warnings go to stderr and do not prevent running;
 syntax, resolution, or typing errors prevent every source effect. Success returns
 0, source/runtime/read errors return 1, and argument errors return 2.
 
@@ -240,3 +240,34 @@ includes a 15-file library loop comparing `.out` bytes, a real-command corpus
 loop under `dune test`, and semantic/runtime-error expectations. Those executions
 remain **unverified here**: shell DNS still prevents local OCaml installation.
 The passing Python infrastructure tests check wiring, not interpreter results.
+
+## A-normal IR
+
+```sh
+dune exec ternc -- dump-ir examples/15_list_library.tern
+dune exec ternc -- run --ir examples/15_list_library.tern
+```
+
+`Lower.program checked` produces a located `Anf.program`. Every operation result
+is named; functions and primitives consume atoms, not nested expressions.
+Conditional/match blocks return atoms to one named result, so their continuation
+is not duplicated. Lexical closures remain explicit functions for the later
+closure-conversion phase.
+
+Matches compile from a prioritized pattern matrix to multiway tag/literal
+switches and projections. Payloads are read only inside their constructor-tag
+branch. Each source case body is a local join point with pattern variables as
+parameters; leaves jump to it, retaining first-match priority and avoiding
+duplicate bodies/binder IDs. No Core pattern nodes survive in executable IR.
+
+`Ir_pretty.program` renders the IR without executing the source.
+`Ir_interp.program ~write ir` walks ANF directly, including join parameters,
+switch tables, field reads, and recursive functions. It shares `Runtime` values,
+Int32 traps, and byte output with the AST reference, not the AST evaluator itself.
+`Core.program.next_id` reserves fresh IDs above every source/prelude binder.
+
+The native tests compare all 15 AST outputs, IR outputs, and `.out` files exactly.
+Focused tests cover safe projections, default/bound fallbacks, nested patterns,
+column selection, effect ordering, closure capture, and matching error spans.
+These native/differential results remain unverified while the local toolchain
+cannot be downloaded; only the documented offline contracts/models have run.
