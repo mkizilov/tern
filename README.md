@@ -381,3 +381,34 @@ The bump allocator still has no collector: tail calls bound stack use, not heap
 allocation. Curried calls that construct intermediate closures, tuples, variants,
 or strings may exhaust the documented 64 MiB cap. Native/runtime failures preserve
 prior stdout; Node currently reports traps without Tern source-location mapping.
+
+## Differential and property testing
+
+`test/differential` runs a shared harness over **every** `.tern` in `examples/`
+and `tests/programs/`. Each case executes through the AST interpreter, the closed
+IR interpreter, and assembled/validated Wasm. Stdout bytes and success/failure
+must match across all three, including partial output before arithmetic or match
+failure. Fixture `.out` files provide an additional exact oracle; `.status` may
+contain `error` for an expected runtime failure.
+
+The same harness is a QCheck property for bounded well-typed programs. One
+property generates integer arithmetic, lets, conditionals, captured/higher-order
+functions, and output markers; a second adds parameterized options, tuples, and
+matches. A typed shrinker reduces failed cases while preserving scope/type and a
+strictly decreasing size/constant-cost measure. A separate property type-checks
+generated terms and their shrink candidates. There are no filtered/discarded
+invalid samples.
+
+These tests are part of `scripts/check.sh`. To replay or extend a sample:
+
+```sh
+TERN_DIFF_SEED=42 TERN_DIFF_COUNT=300 scripts/check.sh
+```
+
+The default seed is `20261108`, with 150 programs per execution property plus
+500 generation/shrinking checks. Node has a 10-second timeout; generated sources
+are nonrecursive with bounded depth, and every case gets a fresh Wasm instance.
+Tools remain bounded to two workers. Failures print the seed, minimized source,
+and engine observations; keep confirmed minimized bugs under `tests/programs`
+with expected stdout/status. Tests do not mutate source fixtures or retain scratch
+output. `DESIGN.md` records actual campaigns and any bugs found.

@@ -474,6 +474,24 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("rt_heap_top() < 65536", cli)
         self.assertIn('test "$count" -eq 15', cli)
 
+    def test_differential_properties_execute_all_engines_and_keep_typed_shrinking(self):
+        root = ROOT / "test" / "differential"
+        harness = (root / "differential.ml").read_text()
+        generator = (root / "program_gen.ml").read_text()
+        runner = (root / "property_tests.ml").read_text()
+        dune = (root / "dune").read_text()
+        for engine in ("Interp.program", "Ir_interp.closed", "Wasm_build.build"):
+            self.assertIn(engine, harness)
+        self.assertIn("WebAssembly.RuntimeError", harness)
+        self.assertIn("Unix.kill pid Sys.sigkill", harness)
+        self.assertIn("Unix.rmdir directory", harness)
+        self.assertIn("Match_option", generator)
+        self.assertIn("let rec shrink", generator)
+        self.assertIn("validate_generated candidate", runner)
+        self.assertIn("property false count", runner)
+        self.assertIn("property true count", runner)
+        self.assertIn("(source_tree ../../tests/programs)", dune)
+
     def test_build_driver_validates_before_atomic_publish_and_cleans_workspace(self):
         driver = (ROOT / "lib" / "wasm_build.ml").read_text()
         main = (ROOT / "bin" / "ternc.ml").read_text()

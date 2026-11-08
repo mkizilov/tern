@@ -1390,3 +1390,98 @@ contracts, and formatting. All 15 compiled outputs match their goldens and the
 10-million-call regression completes without overflow. AFT still lacks ocamllsp
 and treats Cram as Perl; real compilation, Wasm validation, and Node execution
 are authoritative. Runtime traps still have no Tern source-location mapping.
+
+## Differential corpus and typed properties (Prompt 14)
+
+`test/differential/differential.ml` is the shared test-only execution boundary.
+It checks/parses once, captures the AST and closed-IR sinks independently, builds
+and validates Wasm through the real builder, then executes a fresh Node instance
+with isolated stdout/stderr files. Comparison is exact binary stdout plus a
+success bit. This checks failures' output prefixes without claiming identical
+diagnostic formatting: Wasm traps are not yet source mapped.
+
+The test host distinguishes a genuine `WebAssembly.RuntimeError` from loader,
+export, filesystem, or host errors. Only the former becomes a language-failure
+outcome; build errors, unexpected exits/signals, and a 10-second Node timeout
+fail the test. The child is killed/reaped on timeout. File descriptors and the
+owned workspace are cleaned on failure. No global stdout redirection or concurrent
+mutation of the OCaml process's capture state is used.
+
+Corpus discovery is recursive and sorted. Every `.tern` in `examples/` and
+`tests/programs/` runs through all engines and also needs an exact `.out`. Optional
+`.status` is `ok` or `error`, defaulting to success. The five initial curated cases
+cover callee/argument/field effect ordering, captured functions in variants with
+later shadows, correlated match-column priority, an arithmetic failure, and a
+missing-case failure. Curated coverage is not falsely called generated bugs.
+
+### Typed generation, shrinking, and replay
+
+`Program_gen` constructs a typed term tree, tracking integer, boolean, function,
+option, and pair types and a typed lexical environment. Fresh names prevent
+accidental capture. The baseline property starts with int32 edges, wrapping
+add/subtract/multiply/negation, comparisons, lets, ifs, lambdas/applications,
+captured and higher-order functions, and observable output markers. The richer
+property adds nested parameterized options (including function payloads), pairs,
+and exhaustive option/pair matches. Roots print an integer result and newline.
+
+Depth is bounded to 3..8, and each recursive choice spends fuel. Types guide
+arguments, branches, binders, and payload choices. There are no recursive
+bindings; this is a strongly normalizing simply typed subset. Division errors
+are covered by deterministic fixtures, not hidden by randomized assumptions.
+Every generated source must pass the real front end before execution: no filter,
+retry, or QCheck discard silently drops an ill-typed sample.
+
+The shrinker returns same-typed constants/subterms, inlines lets and immediate
+lambda applications with identity-aware substitution, simplifies known option/
+tuple destructuring, and recursively shrinks one child while retaining binder
+scope. Candidates strictly decrease `(node count, summed absolute integer/bool
+cost)`. The numeric component permits shrinking int32 constants without node
+removal and prevents cycles. A 500-case property checks all shrink candidates
+with the actual type checker and the decreasing measure. Expect tests reject
+newline/status differences and check failure-prefix agreement and beta scope.
+
+The default deterministic seed is 20261108, with 150 cases per execution property.
+`TERN_DIFF_SEED` and positive `TERN_DIFF_COUNT` select a replay/longer campaign.
+QCheck prints minimized source and engine observations on failure. Tests never
+write source regressions automatically, especially inside Dune's read-only copies.
+Confirm any discovered mismatch, commit its minimized `.tern`/`.out`/optional
+`.status`, fix it, and keep the fixture. Feature counts make construct coverage
+visible rather than an empty generator scaffold.
+
+### Bugs and observed campaigns
+
+The first campaign passed all 15 examples, then-two curated cases, 500 typed
+generation/shrinking cases, 150 baseline executions, and 150 richer executions
+(seed 20261108). Seed 998244353 then passed 500 per execution property plus 500
+shrink checks and the expanded five-program corpus. Its richer execution sample
+contained matches in 348/500 programs and variant values in 291/500; its baseline
+contained closures in 300/500. These are observations, not exhaustive coverage.
+
+After expanding higher-order argument generation, seed 42 passed 300 per
+execution property plus 500 shrink checks. Baseline coverage included 170 closure
+programs and 69 higher-order programs; richer coverage included 171 closures,
+60 higher-order programs, 213 matches, and 178 variant-value programs.
+
+**Compiler/interpreter bugs found: none in these campaigns.** No minimized
+failure was fabricated or silently discarded. Harness/generator authoring fixes
+(valid unused binder spellings, strict shrink measures, and exact golden newline
+conventions) are not compiler bugs. The five fixtures are explicit curated cases,
+not invented failing seeds. Any future minimized mismatch must be added as a
+regression rather than removed from generation. Existing all-15 compiled goldens
+and the 10-million-tail-call test stay enabled; GC, optimization, and publication
+metadata remain outside this task.
+
+The final default campaign with the expanded generator passed 150 executions per
+property plus 500 shrink checks (seed 20261108), including 32/28 higher-order
+programs in the baseline/richer samples and 101 richer match programs. The final
+`scripts/check.sh` gate passes native compilation, four harness expectations
+(including actual timeout kill/reap), all corpus/property suites, the existing
+backend/runtime/CLI tests, 29 infrastructure contracts, and formatting.
+
+One test-orchestration issue was found and fixed: seed/count environment changes
+must invalidate Dune's test cache. The property stanza declares both variables as
+`env_var` dependencies, so the documented replay command actually reruns cases.
+This was not a language-engine mismatch. Context7 did not resolve the OCaml QCheck
+package (only unrelated JavaScript libraries); the installed API `.mli`
+files supplied the authoritative generator/shrinker/runner signatures. AFT still
+lacks ocamllsp; actual builds and executions are the verification authority.

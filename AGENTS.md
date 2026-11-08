@@ -143,6 +143,15 @@ Extend this file with the project's language-specific architecture and verificat
   meaningful errors, using stable printers and deterministic variable names.
   Never replace phase tests with CLI-only smoke tests. Add QCheck properties
   where they test real invariants, not as empty scaffolding.
+- `test/differential` owns the AST/closed-IR/Wasm harness and typed QCheck
+  generator/shrinker. Every `.tern` under `examples/` and `tests/programs/` needs
+  a byte-exact `.out`; optional `.status` is `ok` or `error` (default `ok`).
+- Differential runs compare stdout and success/failure, not renderer-specific
+  diagnostic text. Compilation/host failures and timeouts are test errors, not
+  accepted language traps. Keep execution sequential and scratch project-local.
+- Replay with `TERN_DIFF_SEED` and `TERN_DIFF_COUNT` (150 per execution property
+  by default). Keep every confirmed minimized failure as a program fixture;
+  tests never silently rewrite source fixtures or accept mismatches.
 - `python3 tests/test_project.py` runs offline infrastructure checks directly;
   `dune test` also invokes them. These do not execute Tern or validate a toolchain.
 - Each `.tern` example has matching `.out` exact stdout. When an interpreter and

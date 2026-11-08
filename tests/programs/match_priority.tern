@@ -1,0 +1,6 @@
+type flag = A | B;;
+let f value = match value with
+  | (_, true) -> 1
+  | (A, _) -> 2
+  | (B, _) -> 3;;
+let () = print_int (f (A, true)); print_int (f (A, false)); print_int (f (B, false)); print_string "\n";;

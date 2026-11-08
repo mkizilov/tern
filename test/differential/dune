@@ -1,0 +1,22 @@
+(library
+ (name tern_diff)
+ (modules differential program_gen)
+ (libraries ternc qcheck))
+
+(test
+ (name property_tests)
+ (modules property_tests)
+ (libraries ternc tern_diff qcheck)
+ (deps
+  (env_var TERN_DIFF_SEED)
+  (env_var TERN_DIFF_COUNT)
+  (source_tree ../../examples)
+  (source_tree ../../tests/programs)))
+
+(library
+ (name differential_expect)
+ (modules expect_tests)
+ (inline_tests)
+ (libraries ternc tern_diff qcheck)
+ (preprocess
+  (pps ppx_expect)))

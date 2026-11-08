@@ -1,0 +1,7 @@
+type pair = Pair of (int * int);;
+let mark n = print_int n; n;;
+let make () = print_string "f"; fun x -> print_int x;;
+let argument () = print_string "a"; 7;;
+let () = make () (argument ()); print_string " ";;
+let value = Pair (mark 1, mark 2);;
+let () = match value with Pair (a, b) -> print_int (a + b); print_string "\n";;

@@ -1,0 +1,8 @@
+type 'a option = None | Some of 'a;;
+let offset = 10;;
+let make value = match value with
+  | Some n -> fun x -> offset + n + x
+  | None -> fun x -> x;;
+let add = make (Some 7);;
+let offset = 900;;
+let () = print_int (add 25); print_string "\n";;
