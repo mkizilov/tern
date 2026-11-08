@@ -3,6 +3,7 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -295,6 +296,22 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Grammar_messages.message", parser)
         self.assertIn("I.HandlingError", parser)
         self.assertNotIn('"syntax error"', parser)
+
+    def test_resolver_covers_surface_forms_and_uses_defined_core_constructors(self):
+        ast = (ROOT / "lib" / "ast.ml").read_text()
+        core = (ROOT / "lib" / "core.ml").read_text()
+        resolver = (ROOT / "lib" / "resolve.ml").read_text()
+        surface = ast.split("and expr_desc =", 1)[1].split("and binding =", 1)[0]
+        variants = set(re.findall(r"\|\s*(E_\w+)", surface))
+        handled = set(re.findall(r"\|\s*(?:Ast\.)?(E_\w+)", resolver))
+        self.assertEqual(handled, variants)
+        defined = set(re.findall(r"(?:=|\|)\s*([A-Z]\w*)", core))
+        used = set(re.findall(r"Core\.([A-Z]\w*)", resolver))
+        self.assertLessEqual(used, defined)
+        expressions = core.split("and expr_desc =", 1)[1].split("and recursive_binding =", 1)[0]
+        self.assertIn("Lambda of name * expr", expressions)
+        self.assertIn("Let of pattern * expr * expr", expressions)
+        self.assertNotRegex(expressions, r"\|\s*(Sequence|Unary|Binary)\b")
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

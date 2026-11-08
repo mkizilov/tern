@@ -6,8 +6,9 @@ The compiler is named `ternc`; its inputs are `.tern` files and its eventual
 output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
 contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
 the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
-Prompt 4 adds unified, rendered diagnostics and parser-state messages. There is
-no executable stub, resolver, type inference, interpreter, or backend yet.
+Prompt 4 adds unified, rendered diagnostics and parser-state messages. Prompt 5
+adds resolution/desugaring into Core. There is no executable stub, type inference,
+interpreter, or backend yet.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -15,10 +16,10 @@ just because the surface syntax is similar.
 
 ```text
 UTF-8 source
-  → lexer → parser → AST → name resolution → type inference
-                                            ├→ reference interpreter
-                                            └→ ANF lowering → closure conversion
-                                                               → WAT → wasm-tools → .wasm
+  → lexer → parser → surface AST → resolution/desugaring → Core → type inference
+                                                                  ├→ reference interpreter
+                                                                  └→ ANF lowering → closure conversion
+                                                                                     → WAT → wasm-tools → .wasm
 ```
 
 The reference interpreter is a semantic oracle, not a transformation that the
@@ -35,7 +36,8 @@ program. Keep phases independently testable and free of CLI I/O.
 3. **AST:** algebraic OCaml types represent expressions, declarations, type
    syntax, and patterns. Use `ppx_deriving` for stable debug printers where useful.
    Keep source spans through subsequent representations.
-4. **Name resolution:** give each binding and constructor a fresh stable identity.
+4. **Name resolution:** produce Core and give each binding and constructor a
+   fresh stable identity.
    Resolve shadowing, pattern scope, recursive groups, and primitive names.
    Reject undefined names, duplicate pattern binders, duplicate types or
    constructors, and undeclared type parameters. Constructor arity is known here.
@@ -374,3 +376,115 @@ Menhir run or execution of OCaml semantic actions/renderers. The helper is
 removed before handoff. The standalone infrastructure suite now passes 15 tests,
 including the new message-generation/dependency wiring contract. Authored
 snapshots are not represented as observed native output.
+
+## Name resolution and desugaring (Prompt 5)
+
+`Resolve.program : Ast.program -> (Core.program, Diagnostic.t) result` is a pure
+front-end pass from parsed syntax to the smaller resolved language in `core.ml`.
+It does not read files, emit output, evaluate expressions, or perform type
+inference. A call creates its own counter and environments. Failure discards
+that context; subsequent calls start fresh. Resolution is fail-fast, consistent
+with the lexer/parser result APIs.
+
+### Identity and scope
+
+`Core.symbol` contains an integer ID and the original spelling. Located names
+at definitions and uses share the symbol but retain their own source spans.
+All binders use one allocator across value, type, constructor, type-parameter,
+and generated-parameter namespaces. IDs are unique **within a resolved program**,
+not globally across separate compilations. Spellings are debug/diagnostic data;
+future phases must key environments by ID, not spelling.
+
+The initial metadata describes `print_int` and `print_string` plus the primitive
+types `int`, `bool`, `string`, and `unit`. These currently receive IDs 0 through 5
+in that order; user/generated IDs start at 6. Do not infer primitive meaning from
+those numbers: use `Core.program`'s builtin enum/name pairs. Prelude definition
+spans use the explicit virtual filename `<builtin>`; no synthetic file is read
+or created. Successful programs keep every allocated binder in Core, including
+unused/phantom type parameters and wildcard lambda parameters.
+
+Persistent value maps implement lexical scopes. A nonrecursive pattern is
+assigned fresh binder IDs, but its RHS is resolved in the **old** environment;
+all pattern bindings become visible only in the continuation. An ordinary shadow
+therefore cannot capture references in its own RHS or in an earlier closure.
+Recursive groups first allocate and install every function name, then resolve
+all bodies in that shared environment. Parameters can shadow recursive names or
+outer values with new IDs. Repeated parameters in separate curried lambdas are
+separate scopes; repeated names inside one tuple/constructor pattern are errors.
+Every match arm gets a fresh pattern scope over the same outer environment.
+
+Type/constructor maps grow in source declaration order, without hoisting future
+declarations. A type is installed before resolving its own payloads so recursive
+variants work. Its parameters have a declaration-local map, separate from value
+and type-constructor names. Duplicate types/constructors are rejected across the
+file, duplicate parameters within their type, and duplicate function names within
+a recursive group. Reusing a primitive type spelling as a value is allowed;
+redeclaring it as a type is not. Constructor patterns check zero/one-payload
+shape, and nominal type applications check parameter arity. Ordinary value
+application typing and tuple-payload types belong to the next phase.
+
+All unbound/duplicate errors use `Diagnostic.t`. Duplicate diagnostics point to
+the second name and label the previous declaration. Unknown type/type-parameter
+names and constructor payload mismatches are also resolved here, so later passes
+never receive unresolved source names. A constructor value remains a distinct
+ID reference, including when used as a first-class payload function.
+
+### Core forms and preserved semantics
+
+Core expressions are literals, value/constructor references, unary name-parameter
+lambdas, unary applications, nonrecursive pattern lets, recursive function groups,
+conditionals, tuples, matches, and primitive operations. Core has no sequence,
+multi-parameter/pattern lambda, boolean operator, separate unary/binary operator,
+or top-level value-declaration forms. Types/constructors remain resolved metadata;
+top-level values become nested lets in source order ending with a unit literal
+at EOF. All expression, pattern, type, declaration, name, and operator nodes retain
+source locations; generated nodes reuse the relevant source span.
+
+The parser already normalizes function shorthand and multiple parameters into
+nested lambdas. Resolution replaces each variable parameter with its new ID.
+Other parameters use a fresh `$arg` identity (not inserted into the source-name
+environment), with an inner pattern let for tuple/unit destructuring. A wildcard
+parameter needs only the unused fresh lambda binder. Generated spellings cannot
+be written as Tern identifiers and, more importantly, references use identities,
+so generated binders cannot capture user names.
+
+`left; right` becomes `let () = left in right`, **not** a wildcard let: the unit
+pattern preserves the language's sequencing type constraint. `left && right`
+becomes `if left then right else false`; `left || right` becomes
+`if left then true else right`. Thus runtime evaluation still short-circuits,
+although both branches' names are checked statically. Other operators become
+located primitive opcodes with one or two operands. Recursive walks explicitly
+resolve callees/conditions/left operands before their siblings, keeping IDs and
+diagnostic ordering deterministic rather than relying on OCaml argument order.
+
+Nonrecursive **pattern lets are intentionally retained**. Lowering a polymorphic
+tuple binding to a match would make its pattern variables monomorphic and lose
+Hindley–Milner let generalization. The future checker must generalize let-pattern
+variables against the substituted outer environment. The inner let generated
+for a lambda parameter then remains monomorphic because its variables are free
+in the lambda argument's environment. Pattern decision-tree lowering belongs
+after typing, not in this pass.
+
+### Verification and current limitations
+
+`test/resolve_tests.ml` adds expectations for shadowing/closure references,
+nonrecursive RHSs (including tuples), self/local/mutual recursion, parameter and
+builtin shadowing, type/value namespaces, constructor/type identities, all listed
+error classes, and desugaring. Duplicate error snapshots render both source sites.
+A reusable Core invariant walk checks unique and contiguous binder IDs, lexical
+scope of value references, resolved type/constructor references, parameter scope,
+and primitive arities. Corpus tests apply it to all 15 examples and compare Core
+before/after surface pretty-printing. A failure/retry test checks that counters
+do not leak between calls. Core has derived printers and span-insensitive equality
+using the existing location wrapper.
+
+Native checks are still blocked: setup again exited 6 while resolving `github.com`,
+the local switch is absent, and `scripts/check.sh` rejected the missing toolchain.
+OCaml compilation, the new expectation/invariant/corpus checks, and formatting
+have **not** run; authored expectations are not observed runtime output. No new
+dependencies were introduced. The existing infrastructure suite plus a new static
+surface-form/Core-constructor coverage contract passed (16 Python tests total),
+and Git whitespace checks passed. Static coverage is not a substitute for OCaml
+type-checking or semantic execution. AFT could not supply OCaml/Python diagnostics
+because their language servers are unavailable, and call-graph inspection reported
+the new OCaml file unindexed; indexed search was used for helper references.

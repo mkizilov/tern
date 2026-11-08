@@ -6,6 +6,9 @@
   lib/dune
   lib/grammar.messages
   lib/parse.ml
+  lib/ast.ml
+  lib/core.ml
+  lib/resolve.ml
   dune-project
   ternc.opam
   .ocamlformat)

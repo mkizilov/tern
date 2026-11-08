@@ -138,6 +138,13 @@ from lowercase values. Each constructor has either no payload or one payload
 (which may itself be a tuple). Constructor application uses ordinary application
 syntax; a constructor with payload is a first-class unary function.
 
+Type and constructor declarations are visible only from their declaration onward;
+a type is also visible within its own constructor payloads. There are no forward
+references to later declarations. The primitive type names `int`, `bool`, `string`,
+and `unit` are predeclared and cannot be redeclared as types. Value names occupy
+a separate namespace, so `let int = 1` is allowed. Parameters on each type must
+be distinct. A recursive function group likewise cannot bind the same name twice.
+
 ```tern
 type 'a option = None | Some of 'a;;
 type 'a list = Nil | Cons of ('a * 'a list);;

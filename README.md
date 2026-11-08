@@ -2,8 +2,9 @@
 
 Tern is a small functional language targeting WebAssembly, with an OCaml 5
 compiler named **ternc**. The project now has a located AST, Sedlex lexer,
-Menhir parser, source pretty-printer, and unified diagnostics. Resolution,
-typing, interpretation, and WebAssembly generation are not implemented yet.
+Menhir parser, source pretty-printer, unified diagnostics, and name resolution
+to a smaller Core AST. Typing, interpretation, and WebAssembly generation are
+not implemented yet.
 
 - [Language specification](LANGUAGE.md)
 - [Compiler design and local setup](DESIGN.md)
@@ -103,3 +104,37 @@ by Dune with `menhir --compile-errors`. The incremental table backend requires
 `menhirLib`. Ten syntax-error snapshots plus renderer/lexer regression cases are
 in `test/diagnostic_tests.ml`. Native message compilation, snapshots, and color
 emission remain unverified while toolchain installation is blocked by shell DNS.
+
+## Name resolution and Core
+
+Pass a successfully parsed program to `Resolve.program`. It returns a
+`Core.program` or the same `Diagnostic.t` used by the lexer/parser. The resolver
+reports unbound values/constructors, duplicate pattern variables, and duplicate
+type/constructor names, with secondary spans for previous declarations. It also
+resolves type parameters/references, checks type application arity and constructor
+pattern payloads, and rejects duplicate names in recursive groups.
+
+Every binder gets a deterministic integer ID, including type parameters,
+constructors, prelude bindings, and generated lambda parameters. Names at use
+sites carry that identity and their own source span. Shadowing is represented
+by different IDs, not string-based lookups in later phases. IDs restart on every
+call; there is no global counter or cross-program state.
+
+Core has unary name-parameter lambdas, applications, nonrecursive pattern lets,
+recursive function groups, literals, tuples, matches, conditionals, and primitive
+operations. Pattern lambda parameters become fresh name parameters with inner
+pattern lets. Sequencing becomes a unit-pattern let; `&&` and `||` become
+conditionals. Top-level value declarations become nested lets ending in unit,
+with resolved type declarations retained as separate metadata. Pattern lets are
+intentional: replacing them with ordinary matches would lose let-polymorphism.
+
+Types and constructors are visible after their declaration (and a recursive
+type is visible within its own payloads). They cannot be redeclared. Primitive
+type names are part of the prelude, while value names such as `print_int` can be
+shadowed. The value and type namespaces are separate.
+
+`test/resolve_tests.ml` contains identity/scope goldens, rendered error cases,
+desugaring checks, and a corpus invariant walk checking globally unique binders,
+properly scoped references, resolved types/constructors, primitive arities, and
+stable resolution after source printing. These expectations remain unexecuted
+here because native OCaml installation is still blocked by shell DNS.

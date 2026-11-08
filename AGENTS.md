@@ -20,8 +20,9 @@ Extend this file with the project's language-specific architecture and verificat
 ## OCaml architecture and local tools
 
 - `LANGUAGE.md` defines Tern semantics; `DESIGN.md` defines phase contracts.
-  The target compiler is `ternc`. The AST, tokens, lexer, Menhir parser, and
-  source printer live in `lib/`; resolution and later phases are not implemented.
+  The target compiler is `ternc`. The surface AST, lexer/parser, diagnostics,
+  source printer, resolved Core AST, and resolver live in `lib/`; typing and later
+  phases are not implemented.
 - Implement phases as a reusable OCaml library under `lib/`, the CLI under
   `bin/`, and phase tests under `test/`, when those phases are requested.
   Keep phases separate, with source locations and structured errors.
@@ -34,6 +35,13 @@ Extend this file with the project's language-specific architecture and verificat
   Do not commit generated parser files or `.conflicts` build artifacts.
 - `Pretty.program` emits canonical reparsable source. `Ast.equal_program`
   ignores all located spans but compares syntax; use it for round-trip tests.
+- `Resolve.program` converts a parsed surface program to `Core.program` or a
+  diagnostic. Later passes consume Core, not surface spellings. Identify binders
+  by `Core.symbol.id`; spellings are for diagnostics/debugging only. IDs are
+  globally unique within a program, deterministic, and reset for each invocation.
+- Keep nonrecursive RHSs in the old scope and pre-bind every recursive group
+  before resolving its bodies. Preserve pattern `Core.Let` bindings for HM
+  generalization; sequence desugaring must retain a unit pattern, not a wildcard.
 - Use `Diagnostic.t` for all compiler errors, with a primary span, severity,
   optional secondary labels, and notes. Supply source text to the renderer;
   do not let rendering implicitly read arbitrary filenames. User-facing columns
