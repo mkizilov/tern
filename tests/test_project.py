@@ -1,6 +1,7 @@
 """Offline infrastructure contracts, not compiler or real installation tests."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -518,6 +519,22 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("optimizations = Optimize.all", harness)
         self.assertIn("Optimize.program optimizations", harness)
         self.assertEqual(len(list((ROOT / "benchmarks").glob("*.tern"))), 5)
+
+    def test_browser_playground_builds_the_actual_compiler_and_uses_local_assets(self):
+        bridge = (ROOT / "playground/compiler.ml").read_text()
+        build = (ROOT / "playground/build.mjs").read_text()
+        dune = (ROOT / "playground/dune").read_text()
+        package = json.loads((ROOT / "package.json").read_text())
+        for phase in ("Check.prepare", "Lower.program", "Closure_convert.program", "Wat.program"):
+            self.assertIn(phase, bridge)
+        self.assertNotIn("Wasm_build", bridge)
+        self.assertIn("(modes js)", dune)
+        self.assertIn("platform: 'browser'", build)
+        self.assertIn("examples.json", build)
+        self.assertIn("@codemirror/view", package["dependencies"])
+        self.assertIn("wabt", package["dependencies"])
+        for version in {**package["dependencies"], **package["devDependencies"]}.values():
+            self.assertRegex(version, r"^\d+\.\d+\.\d+$")
 
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()

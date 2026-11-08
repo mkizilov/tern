@@ -132,6 +132,26 @@ Extend this file with the project's language-specific architecture and verificat
 
 ## Verification commands and tests
 
+- `playground/compiler.ml` exports the real checked compiler through
+  js_of_ocaml; it uses pure library phases, never the native file/process driver.
+  Browser UI/worker sources are under `playground/`. Keep compilation, wabt
+  assembly, and Wasm execution client-side and off the main UI thread.
+- Install exact npm dependencies with `npm ci` (project-local cache); the lockfile
+  is committed. `scripts/build-site.sh` builds/minifies the compiler and bundles
+  the static `site/`; it does not reinstall or discard installed browser tools.
+  `scripts/serve.sh` serves only `site/` on `127.0.0.1:21916`.
+- After building, `npm test` checks the JavaScript compiler/wabt corpus and span
+  mapping. `npm run test:browser` checks real Chromium UI behavior with one worker
+  and removes its test output. Install the pinned Playwright Chromium locally,
+  preserving `PLAYWRIGHT_BROWSERS_PATH` (`0` means hermetic node_modules storage;
+  otherwise choose a repository-local path). Never use a global browser install.
+- Preserve byte-exact host output, UTF-8-byte → UTF-16 editor span mapping, safe
+  text rendering, worker cancellation/time/output limits, and source-edit race
+  handling. Runtime traps currently have no source map; do not invent locations.
+- `site/`, `node_modules/`, browser binaries, caches, and test scratch are ignored
+  generated state, not source deliverables to commit. Preserve the requested
+  built site at handoff; stop its server when verification finishes.
+
 - `Optimize.program flags` runs opt-in ANF passes before closure conversion:
   small nonrecursive inlining → constant folding/propagation → known-constructor
   decision simplification → dead code. Defaults remain `Optimize.none`.

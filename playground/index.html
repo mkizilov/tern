@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; worker-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'">
+  <title>Tern · Browser playground</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="app.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div><span class="wordmark">tern<span class="wing">↗</span></span><span class="eyebrow">PLAYGROUND</span></div>
+    <p>A small language. A complete compiler. <span>Entirely in your browser.</span></p>
+  </header>
+  <main>
+    <div class="toolbar">
+      <label for="examples">Explore an example</label>
+      <select id="examples"><option value="">Custom program</option></select>
+      <span class="local">● Local compilation · no uploads</span>
+      <button id="run" type="button">▶ Run</button>
+      <kbd>⌘ / Ctrl ↵</kbd>
+    </div>
+    <div class="workspace">
+      <section class="source-pane" aria-labelledby="source-title">
+        <div class="pane-heading"><h1 id="source-title">playground.tern</h1><span>OCaml → JS → Wasm</span></div>
+        <div id="editor"></div>
+        <div class="editor-footer">Hindley–Milner inference · closures · pattern matching</div>
+      </section>
+      <section class="result-pane" aria-labelledby="output-title">
+        <div class="pane-heading"><h2 id="output-title">Output</h2><span id="status" role="status">Ready</span></div>
+        <pre id="output" aria-label="Program output" aria-live="polite"></pre>
+        <div class="diagnostic-heading">DIAGNOSTICS</div>
+        <div id="diagnostics" aria-label="Compiler diagnostics"><p class="hint">Run a program to compile, inspect, and execute it.</p></div>
+      </section>
+    </div>
+    <section class="inspector" aria-label="Compiler internals">
+      <div class="tabs" role="tablist" aria-label="Compiler views">
+        <button id="types-tab" role="tab" aria-controls="types" aria-selected="true">Inferred types</button>
+        <button id="ir-tab" role="tab" aria-controls="ir" aria-selected="false" tabindex="-1">ANF IR</button>
+        <button id="wat-tab" role="tab" aria-controls="wat" aria-selected="false" tabindex="-1">Generated WAT</button>
+        <span>Follow the compilation pipeline</span>
+      </div>
+      <pre id="types" role="tabpanel" aria-labelledby="types-tab" tabindex="0">Types will appear after compilation.</pre>
+      <pre id="ir" role="tabpanel" aria-labelledby="ir-tab" tabindex="0" hidden></pre>
+      <pre id="wat" role="tabpanel" aria-labelledby="wat-tab" tabindex="0" hidden></pre>
+    </section>
+    <footer>Runs are isolated in a worker. Stop anytime. <span>5 s limit · 64 KiB output · 64 MiB Wasm memory</span></footer>
+  </main>
+</body>
+</html>

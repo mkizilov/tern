@@ -7,3 +7,5 @@ _opam/
 .DS_Store
 _build/
 *.install
+node_modules/
+site/

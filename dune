@@ -4,6 +4,9 @@
   (source_tree scripts)
   (source_tree examples)
   (source_tree benchmarks)
+  (source_tree playground)
+  package.json
+  package-lock.json
   lib/optimize.ml
   lib/dune
   lib/grammar.messages

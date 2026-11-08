@@ -1570,3 +1570,78 @@ Scratch is scoped and removed by the runners; no services/watchers are needed.
 AFT's OCaml call graph/diagnostics are unavailable here, and it misclassifies Cram
 as Perl. Reference search, actual OCaml compilation, native Cram/expect tests,
 Wasm validation, and executed comparisons are the authority, not those tool gaps.
+
+## Browser playground (turn 16)
+
+`playground/compiler.ml` is a js_of_ocaml entry point linked to the existing
+`ternc` library, not a reimplementation or remote compiler. `TernCompiler.compile`
+accepts JavaScript source text and returns plain cloneable objects containing
+success, principal top-level types, printed ANF IR, generated WAT, and structured
+diagnostics. The path is Check.prepare → Lower → Closure_convert → Wat. Defaults
+remain unoptimized, like the native CLI. Browser code never calls Wasm_build's
+filesystem/process driver. js_of_ocaml 6.5.0 and the existing OCaml 5.4.1 switch
+compile the same parser, resolver, inference, lowering, and backend.
+
+The static UI is CodeMirror 6 with OCaml-like syntax coloring, line numbers,
+history, keyboard run controls, lint gutters, and precise diagnostic underlines.
+`Diagnostic.render` supplies safe plain-text excerpts; structured primary and
+secondary spans are also serialized as half-open UTF-8 byte offsets. The adapter
+converts them to CodeMirror UTF-16 offsets without treating scalar columns or
+bytes as JavaScript string indices. EOF points, astral characters, CRLF input,
+and related-location labels have dedicated tests. Diagnostic/output rendering
+uses textContent, never source-driven HTML. Tab semantics and responsive layout
+work without an application framework.
+
+Every run gets a fresh worker. It loads the compiled compiler, emits inspection
+results, assembles/validates WAT with wabt 1.0.39 (tail_call enabled), and executes
+the binary using only the existing tern.print_int / tern.print_string ABI. String
+printing checks memory bounds and copies bytes before transferring them to the
+UI; decoding is streaming UTF-8 and retains preceding output on a Wasm trap.
+The native Node host remains unchanged. Wasm is not evaluated on the main thread.
+Stop, editing, navigation, or a five-second deadline terminates the worker; old
+worker messages cannot overwrite newer editor state. Source/output budgets are
+256 KiB / 64 KiB, and the runtime retains its 64 MiB linear-memory cap. Runtime
+traps have no fabricated source span. This is bounded execution, not a new GC or
+source-level debugger.
+
+`package.json`/`package-lock.json` pin npm packages, including esbuild 0.28.2 and
+Playwright 1.65.0. npm 11's allowScripts policy approves only the exact esbuild
+install script. `scripts/build-site.sh` uses existing installed packages, Dune's
+js mode, and esbuild to create/minify six local assets in ignored `site/`, with
+all 15 sources in a generated dropdown manifest. The compiler's development
+inline source map is removed by minification. wabt contains an unreachable Node
+fs branch: esbuild marks fs external rather than adding a browser filesystem
+polyfill. Real worker tests verify that the branch is never needed. CSP limits
+scripts/workers/connections to local assets (with Wasm compilation enabled),
+and no CDN or compiler HTTP endpoint is used. `scripts/serve.sh` binds only
+127.0.0.1:21916 and serves the built directory; it does not build/install at startup.
+
+### Verification and host observations
+
+The native gate passes with the real JS compiler target included and 31 offline
+infrastructure contracts. Five Node tests load the generated compiler in a
+browser-like VM and run all 15 goldens through wabt/Wasm byte-for-byte, plus span,
+secondary/EOF, partial-trap-output, and invalid-memory-request checks. Eight real
+Chromium tests exercise all 15 dropdown examples, all tabs, Unicode errors,
+warnings, exact visible output, runtime failures, cancellation/restart, timeout,
+output/source limits, safe text rendering, mobile overflow, keyboard controls, and late
+example-load races. Requests during runs remain same-origin static GETs. Visual
+review found no browser console/page/CSP errors. Other browser engines were not
+tested; Wasm tail-call support is required.
+
+Setup fixes were scoped to this work: standalone native linking needed the SDK
+selection already supplied by scripts/env.sh; wabt's Node-only fs branch needed
+the external declaration; the first copied Dune JS artifact inherited read-only
+mode, so the minifying build now writes its own output. The supplied
+PLAYWRIGHT_BROWSERS_PATH=0 was preserved by moving this task's downloaded browser
+to its native hermetic node_modules location, not by a symlink or global install.
+Builds do not reinstall packages and thereby erase that browser. Browser test
+output/transform caches are scoped and removed; this host leaves empty Chromium
+profile roots, which the runner removes after its owned browser exits. Host-wide
+ps inspection is sandbox-denied; owned lifecycle completion and the closed
+loopback endpoint verify shutdown without bypassing that boundary. AFT still
+lacks OCaml diagnostics and uses a fallback JS analyzer; native builds and actual
+executions remain authoritative. The built site and local dependencies are kept
+for use; no server, scratch screenshot, or task test report is retained.
+Context7 did not resolve js_of_ocaml or wabt to relevant documentation; installed
+versioned API/README files supplied those signatures, alongside executed tests.
