@@ -6,6 +6,7 @@
 - Never install anything globally or use sudo, Homebrew, launchd, host credentials, or host Docker sockets.
 - Dependencies, toolchains, caches, browser binaries, SDKs, temporary files and test data stay in this repository. Preserve the supplied project-local environment. Python packages go in `.venv`.
 - `.agent-local/` is ignored, project-local build/runtime state. `.opencode/` is managed orchestration configuration; do not change or remove it or bypass the sandbox.
+- `.cortexkit/` is ignored, project-local harness state. Preserve it while the harness is active; never commit its caches or metadata.
 - Use existing system tools read-only, or install pinned tools under this repository. Do not change shell profiles, user settings, Keychain, or global Git settings.
 - Bind test servers to loopback; use ports 21900–21999. Limit build/test workers to two unless a required benchmark explicitly needs more.
 - Docker-dependent integration tests must remain reproducible but be reported as unverified here if they require access outside this repository. Do not bypass this boundary.
