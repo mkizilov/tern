@@ -11,7 +11,7 @@ async function run(page, expected = 'Completed') {
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
-  await expect(page.locator('#examples option')).toHaveCount(16);
+  await expect(page.locator('#examples option')).toHaveCount(17);
 });
 
 test('all examples compile in the real browser and match exact golden output', async ({ page }) => {
@@ -26,7 +26,7 @@ test('all examples compile in the real browser and match exact golden output', a
     expect(await page.locator('#output').textContent(), file).toBe(readFileSync(`examples/${file.replace('.tern', '.out')}`, 'utf8'));
   }
   await page.getByRole('tab', { name: 'Inferred types' }).click();
-  await expect(page.locator('#types')).toContainText('val map');
+  await expect(page.locator('#types')).toContainText('val eval');
   await page.getByRole('tab', { name: 'ANF IR' }).click();
   await expect(page.locator('#ir')).not.toHaveText('');
   await page.getByRole('tab', { name: 'Generated WAT' }).click();
@@ -110,7 +110,7 @@ test('late example loading never overwrites an edited program and the run shortc
   await source(page, 'let () = print_int 9;;');
   await expect.poll(() => typeof release).toBe('function');
   await release();
-  await expect(page.locator('#examples option')).toHaveCount(16);
+  await expect(page.locator('#examples option')).toHaveCount(17);
   await page.getByRole('textbox', { name: 'Tern source' }).press('ControlOrMeta+Enter');
   await expect(page.getByRole('status')).toHaveText('Completed');
   expect(await page.locator('#output').textContent()).toBe('9');

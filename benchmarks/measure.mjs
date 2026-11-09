@@ -27,7 +27,7 @@ async function sample(bytes, expected) {
   const milliseconds = Number(process.hrtime.bigint() - start) / 1e6;
   assert.deepEqual(Buffer.concat(chunks), expected);
   maxRss = Math.max(maxRss, process.memoryUsage().rss);
-  return { milliseconds, heap: instance.exports.rt_heap_top() - 4096, memory: instance.exports.memory.buffer.byteLength };
+  return { milliseconds, heap: instance.exports.rt_heap_top() - instance.exports.rt_heap_base.value, memory: instance.exports.memory.buffer.byteLength };
 }
 
 try {
@@ -59,9 +59,9 @@ try {
   console.log('## Method\n');
   console.log('Inputs: naive Fibonacci(24); insertion sort of a descending 300-element list plus order-sensitive checksum; persistent binary-search-tree insertion of 1,000 permuted keys and lookup sum; 4,000 string appends (8,000 output bytes plus LF); 10,000 closure-heavy iterations with option wrapping and a small helper.');
   console.log('Each configuration starts from the same checked source. Baseline disables every pass; each individual column enables only that pass; all uses inline → constants → matches → DCE. Flags are opt-in and default off.');
-  console.log('Runtime is median of 7 fresh-instance `_start` executions after 2 warmups. Configurations are interleaved per round with rotating order, rather than measuring one configuration in a batch. Compilation, assembly, validation, instantiation, and host GC are excluded; output-byte capture is included. Node host GC runs before each sample, not inside the measured interval. No source-language collector is implemented.');
+  console.log('Runtime is median of 7 fresh-instance `_start` executions after 2 warmups. Configurations are interleaved per round with rotating order. Building/instantiation/host GC are excluded; output capture and Tern GC pauses are included. Node host GC runs before each sample. The managed-heap column is the ending high-water cursor after the last collection, not peak allocation or live bytes.');
   console.log('The host uses `--max-old-space-size=256`; each Wasm instance is capped at 64 MiB. Measurements are sequential. Timing differences near timer/JIT noise are not speedup claims.\n');
-  console.log('| Program | Pass | Wasm bytes | Median ms | Size Δ | Time Δ | Same binary as baseline | Peak bump bytes | Linear bytes |');
+  console.log('| Program | Pass | Wasm bytes | Median ms | Size Δ | Time Δ | Same binary as baseline | Ending managed bytes | Linear bytes |');
   console.log('| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: |');
   for (const result of results) {
     const baseline = results.find(row => row.program === result.program && row.configuration === 'baseline');

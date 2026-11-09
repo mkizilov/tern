@@ -12,5 +12,6 @@
  (deps
   %{bin:ternc}
   ../runtime/run.mjs
+  (source_tree ../tests/stress)
   (glob_files ../examples/*.tern)
   (glob_files ../examples/*.out)))

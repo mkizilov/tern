@@ -105,7 +105,7 @@ Extend this file with the project's language-specific architecture and verificat
   Do not hand-maintain divergent dependency lists. Do not commit toolchains,
   caches, build outputs, or temporary test fixtures.
 - `runtime/runtime.wat` defines the memory/value ABI in `DESIGN.md`: tagged i64
-  values preserve all int32s, 8-byte-aligned blocks have tag/size headers, and
+  values preserve all int32s, 8-byte-aligned blocks have 16-byte GC headers, and
   closures use a table index plus an environment pointer. Do not shrink int32
   range or introduce source-visible mutation when implementing the backend.
 - `runtime/run.mjs` provides only `tern.print_int` and byte-exact
@@ -126,11 +126,24 @@ Extend this file with the project's language-specific architecture and verificat
   WAT, host-script, log, and run binaries are scoped scratch and cleaned. `run`
   defaults to compile + Node; `--interp`/`--ir` retain semantic-reference modes.
 - Use `dune exec ternc -- build file.tern -o file.wasm` and
-  `dune exec ternc -- run file.tern`. All 15 examples must match `.out` when
+  `dune exec ternc -- run file.tern`. All 16 examples must match `.out` when
   compiled, as well as under the interpreter/IR references. The native CLI suite
   includes a 10,000,000-step tail loop with a one-page heap bound.
 
 ## Verification commands and tests
+
+- The Wasm runtime is non-moving mark-sweep. Every generated function pushes a
+  shadow frame; locals/join formals/scratch are rooted and frames pop on normal
+  returns and before tail calls. Immutable string atoms occupy static blocks.
+  Preserve the runtime helper temporary roots across allocating calls.
+- GC traces source fields, not string bytes/auxiliary words; it coalesces/splits
+  free blocks and collects before growing memory. Host-held exported values must
+  be registered explicitly with `rt_frame_push`/`rt_root_set` until released.
+- `test/gc_cli.t` checks >256 MiB cumulative allocation in one-page memory with
+  both optimization modes, plus a retained 20,000-node graph. Runtime tests cover
+  cycles, roots, helper safepoints, coalescing, and live-data OOM. The JavaScript
+  corpus also forces GC at every allocation. Do not replace these with RSS-only
+  claims or assume a JavaScript local is automatically a guest root.
 
 - `playground/compiler.ml` exports the real checked compiler through
   js_of_ocaml; it uses pure library phases, never the native file/process driver.

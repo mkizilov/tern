@@ -312,7 +312,7 @@ let%expect_test "all example matches are exhaustive and useful" =
     Sys.readdir "../examples" |> Array.to_list
     |> List.filter (fun file -> Filename.extension file = ".tern")
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun file ->
       let source =
@@ -320,8 +320,8 @@ let%expect_test "all example matches are exhaustive and useful" =
       in
       assert ((check source).warnings = []))
     files;
-  print_endline "15 examples: no pattern-match warnings";
-  [%expect {| 15 examples: no pattern-match warnings |}]
+  print_endline "16 examples: no pattern-match warnings";
+  [%expect {| 16 examples: no pattern-match warnings |}]
 
 let%expect_test "finite boolean products agree with exhaustive enumeration" =
   let core =

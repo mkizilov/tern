@@ -1,0 +1,9 @@
+type 'a option = None | Some of 'a;;
+let rec waste n = if n = 0 then () else let junk = (n, n + 1) in waste (n - 1);;
+let rec churn n keep =
+  if n = 0 then (waste 10000; match keep with None -> 0 | Some f -> f 20)
+  else
+    let pair = (n, n + 1) in
+    let answer x = let (a, b) = pair in a + b + x + 19 in
+    churn (n - 1) (Some answer);;
+let () = print_int (churn 2000000 None); print_string "\n";;

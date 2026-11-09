@@ -389,7 +389,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Interp.program", tests)
         self.assertIn("ternc run --interp", cli)
         self.assertIn('cmp "$expected" actual.out', cli)
-        self.assertIn('test "$count" -eq 15', cli)
+        self.assertIn('test "$count" -eq 16', cli)
 
     def test_anf_uses_atoms_and_lowers_every_core_expression(self):
         core = (ROOT / "lib" / "core.ml").read_text()
@@ -460,7 +460,10 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("source function", backend)
         self.assertIn("i32.rem_s", backend)
         self.assertIn("-2147483648", backend)
-        self.assertIn("memory.init", backend)
+        self.assertIn("(data (i32.const %d)", backend)
+        self.assertIn("$heap_base", backend)
+        self.assertIn("$rt_frame_push", backend)
+        self.assertIn("$rt_root_set", backend)
         self.assertIn('"call_indirect"', backend)
 
     def test_full_backend_has_tables_tail_calls_and_complete_compiled_corpus(self):
@@ -473,7 +476,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("forwards name body", backend)
         self.assertIn("10000000", cli)
         self.assertIn("rt_heap_top() < 65536", cli)
-        self.assertIn('test "$count" -eq 15', cli)
+        self.assertIn('test "$count" -eq 16', cli)
 
     def test_differential_properties_execute_all_engines_and_keep_typed_shrinking(self):
         root = ROOT / "test" / "differential"
@@ -505,7 +508,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Runtime_assets.host", driver)
         self.assertIn("Wasm_build.run ~optimizations:!optimizations checked", main)
         self.assertIn("validation-rejected", cli)
-        self.assertIn('test "$count" -eq 15', cli)
+        self.assertIn('test "$count" -eq 16', cli)
 
     def test_optimization_passes_are_opt_in_independent_and_differentially_checked(self):
         pipeline = (ROOT / "lib/optimize.ml").read_text()
@@ -548,11 +551,11 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("wasm-tools-1.263.0-aarch64-macos.tar.gz", names)
         self.assertIn("opam-2.6.1-arm64-macos", names)
 
-    def test_fifteen_paired_utf8_examples_and_exact_output_fixtures(self):
+    def test_sixteen_paired_utf8_examples_and_exact_output_fixtures(self):
         examples = ROOT / "examples"
         sources = sorted(examples.glob("*.tern"))
         outputs = sorted(examples.glob("*.out"))
-        self.assertEqual(len(sources), 15)
+        self.assertEqual(len(sources), 16)
         self.assertEqual([p.stem for p in sources], [p.stem for p in outputs])
         expected = [
             "Hello, Tern!\n", "14 -3 -2\n", "ready\n",
@@ -560,17 +563,24 @@ class RepositoryTests(unittest.TestCase):
             "720\n", "even\nodd\n1\n", "142\n", "16 42\n", "42\n", "42 7\n",
             "zero pair\nsingle true pair\nmissing\n", "42\nno tree\n",
             "2 4 6 8 10\n6 8 10\n24\nsmall small big big big end\n",
+            "(6 * (5 + 2)) = 42\n(-(8 + 3)) = -11\n((20 - 6) * 3) = 42\n",
         ]
         for index, (source, output, stdout) in enumerate(
             zip(sources, outputs, expected), start=1
         ):
             with self.subTest(program=source.name):
-                self.assertTrue(source.name.startswith(f"{index:02}_"))
+                if index <= 15:
+                    self.assertTrue(source.name.startswith(f"{index:02}_"))
+                else:
+                    self.assertEqual(source.name, "interpreter.tern")
                 self.assertTrue(source.read_text(encoding="utf-8").endswith(";;\n"))
                 self.assertEqual(output.read_bytes(), stdout.encode("utf-8"))
-        library = sources[-1].read_text()
+        library = (examples / "15_list_library.tern").read_text()
         for function in ("map", "filter", "fold"):
             self.assertIn(f"let rec {function} ", library)
+        showcase = (examples / "interpreter.tern").read_text()
+        for function in ("eval", "render"):
+            self.assertIn(f"let rec {function} ", showcase)
 
 
 if __name__ == "__main__":

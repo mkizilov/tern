@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-The compiler is named `ternc`; its inputs are `.tern` files and its eventual
+The compiler is named `ternc`; its inputs are `.tern` files and its validated
 output is a core WebAssembly `.wasm` module. Prompt 1 establishes the language
 contract, example corpus, dependency metadata, and local tooling. Prompt 2 adds
 the AST, token vocabulary, and lexer. Prompt 3 adds the parser and source printer;
@@ -15,7 +15,11 @@ Prompt 9 adds ANF lowering, match decision trees, an IR printer/interpreter, and
 execution. Prompt 11 adds the hand-written WAT memory runtime and Node host.
 Prompt 12 adds part-1 WAT emission, assembly/validation, build, and compiled run.
 Prompt 13 completes heap/data/match/indirect-call emission and Wasm tail calls.
-The runtime remains bump-only; a collector is not implemented.
+Prompt 14 adds typed differential properties; prompt 15 adds opt-in optimizations;
+prompt 16 adds the browser compiler/playground. Prompt 17 adds a non-moving
+mark-sweep collector with compiler shadow roots and an arithmetic-interpreter
+showcase. Historical prompt sections retain the observations from those turns;
+the current memory ABI is specified in the turn-17 section below.
 `LANGUAGE.md` is authoritative for semantics. Do not infer behavior from OCaml
 just because the surface syntax is similar.
 
@@ -25,8 +29,8 @@ just because the surface syntax is similar.
 UTF-8 source
   → lexer → parser → surface AST → resolution/desugaring → Core → type inference
                                                                   ├→ reference interpreter
-                                                                  └→ ANF lowering → closure conversion
-                                                                                     → WAT → wasm-tools → .wasm
+                                                                  └→ ANF lowering → optional optimization → closure conversion
+                                                                                     → WAT + shadow roots/GC → assembler → .wasm
 ```
 
 The reference interpreter is a semantic oracle, not a transformation that the
@@ -1015,7 +1019,12 @@ work. AFT still lacks ocamllsp and does not index these call graphs; native OCam
 builds/tests are the authority. No outer sandbox boundary was bypassed, no host
 service was contacted, and no global tools/settings were changed.
 
-## Linear-memory representation and runtime ABI (Prompt 11)
+## Initial linear-memory representation and runtime ABI (Prompt 11)
+
+This section records the original bump-only ABI. The turn-17 collector below
+supersedes its 8-byte headers, allocation policy, and root-lifetime assumptions;
+tagged values and the printing imports are unchanged. Existing compiled binaries
+still contain their own runtime and can run with the unchanged Node host.
 
 `runtime/runtime.wat` is hand-written, assembled with the pinned wasm-tools,
 validated, and executed in Node. It is a complete runtime module for standalone
@@ -1645,3 +1654,133 @@ executions remain authoritative. The built site and local dependencies are kept
 for use; no server, scratch screenshot, or task test report is retained.
 Context7 did not resolve js_of_ocaml or wabt to relevant documentation; installed
 versioned API/README files supplied those signatures, alongside executed tests.
+
+## Mark-sweep collection and shadow roots (turn 17, current ABI)
+
+The bump-only runtime is replaced by a stop-the-world, non-moving mark-sweep
+collector. Tagged i64 immediates, constructor identities, function-table indices,
+and the two printing imports retain their semantics. Addresses are stable during
+collection. Source code gains no mutable references or observable pointer identity.
+
+### Block layout and allocation
+
+Allocated blocks remain 8-byte aligned but now have **16-byte headers**:
+
+| Offset | Meaning |
+| --- | --- |
+| 0 | u32: kind in bits 0..5, mark bit 6, reserved bit 7, payload byte size in 8..31 |
+| 4 | u32: constructor tag, closure code index, or previous shadow frame |
+| 8 | u32: intrusive collector worklist link; not a source field |
+| 12 | reserved padding |
+| 16 | payload: tagged i64 fields, or opaque string bytes |
+
+Kinds 1..5 remain tuple, variant, closure, string, environment. Kind 6 is a private
+shadow frame, not accepted by public source-value accessors or rt_alloc. Free
+blocks use kind 0 and encode total block size in 8-byte units in bits 8..31, with
+the next-free link at offset 4. Their minimum size is 8 bytes. This distinct free
+encoding can represent coalesced regions larger than the 24-bit source payload
+limit without truncation. Allocated total size is `(payload + 23) & -8`.
+
+Allocation first searches the free list and splits a fitting block. Otherwise it
+uses the high-water cursor while there is capacity. Before growing memory it
+collects and retries reuse. Sweep merges adjacent dead/free regions and trims a
+dead suffix from the cursor. If retained data still requires more capacity,
+memory grows by whole pages, up to the existing 64 MiB cap. Live-data OOM still
+traps; collection may run before the failure. Non-moving fragmentation can also
+prevent a sufficiently large contiguous allocation. There is no compaction,
+generation, concurrent collector, or write barrier.
+
+### Roots, safepoints, and calls
+
+Wasm machine locals/operand stacks are **not** scanned. Every generated callable
+pushes a managed shadow frame containing its environment and argument, every
+named local/case formal, and allocation scratch. Compiler slot maps use resolved
+IDs. Binding stores publish roots immediately; join formals preserve parallel
+assignment semantics before their slots are updated. Zero/uninitialized slots
+and tagged immediates are ignored by tracing. All bound locals are conservatively
+retained until their function returns, even if a later liveness analysis could
+prove them dead. This is safe but can retain more memory than a precise map.
+
+Normal returns save the result in a Wasm local, pop/free their frame, then return
+without another safepoint. Tail calls evaluate outgoing environment/argument/code
+into non-allocating scratch locals, pop their frame, then use return_call or
+return_call_indirect. The callee protects incoming environment/argument in runtime
+temporary globals **before allocating its own frame**. Thus tail calls remain
+bounded in both Wasm stack and shadow-root depth. The ordinary 10-million-call
+test is retained, including optimization-enabled execution.
+
+Runtime variant/closure construction and string concatenation likewise protect
+their incoming pointer values in temporary roots across allocation. Half-built
+environments have initialized unit fields before source code can expose them;
+recursive environment/closure cycles are safe to trace during initialization.
+Field writes and root stores do not allocate, so stop-the-world collection needs
+no mutation barrier.
+
+String atoms must not allocate invisibly while another operand sits unrooted on
+the Wasm operand stack. The backend therefore emits immutable literal blocks as
+active data starting at 4096 and returns their addresses directly. It sets initial
+memory and the managed heap base after the aligned static region. These opaque
+static strings are immortal and are never traced or swept. Large literal/static
+regions are checked against runtime payload/linear-memory limits.
+
+### Tracing, embedding, and observability
+
+Collection marks the active frame chain and the two runtime temporary roots.
+Marking queues each object once using its header work link; a loop drains that
+list, traces tagged payload fields and frame links, and skips string bytes and
+normal auxiliary tags/code indices. No recursive mark call stack or auxiliary
+allocation is needed. Sweep clears live marks and rebuilds/coalesces free blocks.
+Cycles become reclaimable when their last shadow-root path disappears.
+
+JavaScript variables are not guest roots. Native embedders retaining a runtime
+value across allocating calls must push a frame (at least two reserved slots),
+publish values with rt_root_set, and pop frames in LIFO order. Compiler-generated
+Tern code does this automatically. A trap aborts the invocation; the collector
+does not unwind shadow frames through a Wasm trap. Discard that instance after
+a source runtime failure, as the native runner and playground already do.
+
+rt_heap_base exposes the immutable managed-region start; rt_heap_top is the
+current high-water cursor, not peak/live bytes. rt_gc_collections counts complete
+collections, and rt_allocated_bytes counts successful physical-byte requests,
+including reused blocks and shadow frames. Linear memory itself cannot shrink.
+The benchmark runner now labels ending managed bytes correctly; OPTIMIZATIONS.md
+explicitly preserves its pre-GC measurements rather than inventing replacement
+numbers for this ABI.
+
+### Tests and the interpreter showcase
+
+Runtime tests cover cycle retention/reclamation, roots, opaque string bytes,
+coalescing/reuse, helper safepoints, LIFO/slot checks, growth, and retained-live-data
+OOM. Native stress assertions compile tests/stress/gc.tern in both optimization
+modes: two million iterations allocate over 256 MiB cumulatively while linear
+memory stays exactly 64 KiB. Each iteration creates at least a tuple, captured
+environment, closure, and payload variant; object allocation alone exceeds the
+old 64 MiB bump cap. Before invoking the final closure, a non-tail call performs
+10,000 further garbage-producing iterations while the closure stays live. Its
+answer depends on the exact captured tuple (1, 2), not an algebraic cancellation
+that could hide corrupted capture values. It returns 42. After source
+return and explicit collection, the cursor returns to the static heap base,
+proving that frames/cycles are not leaked. A 20,000-node retained list additionally
+forces growth and deep iterative graph tracing, then is fully reclaimable.
+
+The generated-JavaScript corpus test inserts collection at **every allocation**,
+including frame creation, and compares all 16 outputs byte-for-byte. This tests
+root completeness independently of heap pressure. Native differential/phase/CLI
+tests and browser tests include the new examples/interpreter.tern showcase.
+Its expression datatype, recursive evaluator, and recursive printer illustrate
+the language without changing the language implementation. README is now a
+short tour/build/run/testing entry point with a Mermaid pipeline; its two tour
+programs are also compiled and executed by tests.
+
+The completed turn passes scripts/check.sh (including 21 runtime tests, all phase
+expectations/Cram suites, the GC stress cases, 31 infrastructure contracts, and
+formatting), seven generated-JavaScript tests, and eight real Chromium UI tests.
+All 16 examples remain byte-exact across the reference/IR/native/browser paths.
+The normal all-enabled QCheck campaign passed 300 executions plus 500 typed
+generation/shrink checks. Seed 171717 additionally passed 500 executions per
+property plus 500 shrink checks; its richer sample contained 330 match and 271
+variant programs. No mismatch was suppressed or converted into an accepted trap.
+The default and optimized two-million-iteration stress tests and retained-graph
+assertions were executed, not extrapolated from RSS. Safari/Firefox and isolated
+GC latency benchmarks were not run. AFT still lacks OCaml analysis and treats
+Cram as Perl, so native compilation/expect/Cram execution is authoritative.

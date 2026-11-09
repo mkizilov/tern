@@ -316,7 +316,7 @@ let%expect_test "the complete example corpus lexes without errors" =
     |> List.filter (fun name -> Filename.extension name = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun name ->
       let path = Filename.concat directory name in
@@ -330,4 +330,4 @@ let%expect_test "the complete example corpus lexes without errors" =
           assert ((List.hd (List.rev tokens)).value = Token.Eof))
     files;
   Printf.printf "lexed %d example files\n" (List.length files);
-  [%expect {| lexed 15 example files |}]
+  [%expect {| lexed 16 example files |}]

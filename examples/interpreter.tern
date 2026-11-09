@@ -1,0 +1,22 @@
+(* An interpreter for a tiny arithmetic language, written in Tern itself. *)
+type expr = Number of int | Plus of (expr * expr) | Minus of (expr * expr)
+  | Times of (expr * expr) | Negative of expr;;
+
+let rec eval expression = match expression with
+  | Number n -> n
+  | Plus (left, right) -> eval left + eval right
+  | Minus (left, right) -> eval left - eval right
+  | Times (left, right) -> eval left * eval right
+  | Negative inner -> -(eval inner);;
+
+let rec render expression = match expression with
+  | Number n -> print_int n
+  | Plus (left, right) -> print_string "("; render left; print_string " + "; render right; print_string ")"
+  | Minus (left, right) -> print_string "("; render left; print_string " - "; render right; print_string ")"
+  | Times (left, right) -> print_string "("; render left; print_string " * "; render right; print_string ")"
+  | Negative inner -> print_string "(-"; render inner; print_string ")";;
+
+let show expression = render expression; print_string " = "; print_int (eval expression); print_string "\n";;
+let () = show (Times (Number 6, Plus (Number 5, Number 2)));;
+let () = show (Negative (Plus (Number 8, Number 3)));;
+let () = show (Times (Minus (Number 20, Number 6), Number 3));;

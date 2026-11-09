@@ -47,6 +47,11 @@ function bytes(r, value) {
 
 const traps = operation => assert.throws(operation, WebAssembly.RuntimeError);
 
+function roots(r, count) {
+  const frame = r.rt_frame_push(count + 2, 3n, 3n);
+  return { frame, set(index, value) { r.rt_root_set(frame, index + 2, value); return value; } };
+}
+
 test('runtime has only printing imports and no automatic source entry', () => {
   const module = new WebAssembly.Module(runtime.bytes);
   assert.deepEqual(WebAssembly.Module.imports(module), [
@@ -186,7 +191,8 @@ test('concatenation and literal equality preserve inputs and empty strings', asy
 
 test('growth preserves old objects and refreshes host memory views on each print', async () => {
   const { r, output } = await fresh();
-  const before = string(r, 'before');
+  const pinned = roots(r, 1);
+  const before = pinned.set(0, string(r, 'before'));
   const oldBuffer = r.memory.buffer;
   r.rt_string(131072);
   assert.notEqual(r.memory.buffer, oldBuffer);
@@ -208,18 +214,95 @@ test('print helpers write signed decimal and raw bytes without implicit newlines
 
 test('allocation rejects invalid sizes and leaves heap state unchanged on bounded OOM', async () => {
   const { r } = await fresh();
+  const pinned = roots(r, 3);
   const start = r.rt_heap_top();
   for (const [kind, size] of [[0, 0], [6, 0], [1, -1], [4, 16777216], [1, 0x7fffffff]]) {
     traps(() => r.rt_alloc(kind, size, 0));
     assert.equal(r.rt_heap_top(), start);
   }
-  for (let i = 0; i < 3; i++) r.rt_string(16777215);
+  for (let i = 0; i < 3; i++) pinned.set(i, r.rt_string(16777215));
   const full = r.rt_heap_top();
   traps(() => r.rt_string(16777215));
   assert.equal(r.rt_heap_top(), full);
   assert.ok(r.memory.buffer.byteLength <= 64 * 1024 * 1024);
   const small = r.rt_tuple(2);
   assert.equal(r.rt_field_get(small, 0), 3n);
+});
+
+test('mark-sweep preserves cyclic closure graphs and reuses memory far beyond one page', async () => {
+  const { r } = await fresh();
+  const pinned = roots(r, 1);
+  const env = pinned.set(0, r.rt_environment(2));
+  const a = r.rt_closure(7, env);
+  r.rt_field_set(env, 0, a);
+  const b = r.rt_closure(8, env);
+  r.rt_field_set(env, 1, b);
+  for (let i = 0; i < 100000; i++) r.rt_tuple(20);
+  assert.ok(r.rt_gc_collections() > 100);
+  assert.ok(r.rt_allocated_bytes() > BigInt(r.memory.buffer.byteLength) * 100n);
+  assert.equal(r.memory.buffer.byteLength, 65536);
+  assert.equal(r.rt_closure_code(r.rt_field_get(env, 0)), 7);
+  assert.equal(r.rt_closure_environment(r.rt_field_get(env, 1)), env);
+  r.rt_frame_pop(pinned.frame);
+  r.rt_collect();
+  assert.equal(r.rt_heap_top(), 4096);
+});
+
+test('strings are not scanned as pointers and free regions coalesce', async () => {
+  const { r } = await fresh();
+  const pinned = roots(r, 1);
+  const dead = r.rt_tuple(2);
+  const text = pinned.set(0, r.rt_string(8));
+  new DataView(r.memory.buffer).setBigUint64(r.rt_string_data(text), dead, true);
+  r.rt_collect();
+  traps(() => r.rt_pointer(dead));
+  assert.equal(new DataView(r.memory.buffer).getBigUint64(r.rt_string_data(text), true), dead);
+  pinned.set(0, 3n);
+  r.rt_collect();
+  assert.equal(r.rt_heap_top(), pinned.frame + 40);
+  const larger = r.rt_tuple(100);
+  assert.equal(r.rt_pointer(larger), pinned.frame + 40);
+  r.rt_frame_pop(pinned.frame);
+  r.rt_collect();
+  assert.equal(r.rt_heap_top(), 4096);
+});
+
+test('runtime concat roots both incoming strings across a collecting allocation', async () => {
+  const { r } = await fresh();
+  const left = string(r, 'a'.repeat(20000));
+  const right = string(r, 'b'.repeat(20000));
+  const result = r.rt_string_concat(left, right);
+  assert.ok(r.rt_gc_collections() > 0);
+  assert.equal(bytes(r, result).toString(), 'a'.repeat(20000) + 'b'.repeat(20000));
+});
+
+test('sweep coalesces interior holes and first-fit allocation splits them', async () => {
+  const { r } = await fresh();
+  const pinned = roots(r, 2);
+  pinned.set(0, string(r, 'left'));
+  const first = r.rt_tuple(10);
+  r.rt_tuple(10);
+  pinned.set(1, string(r, 'right'));
+  const before = r.rt_heap_top();
+  r.rt_collect();
+  const merged = r.rt_tuple(20);
+  assert.equal(merged, first);
+  assert.equal(r.rt_heap_top(), before);
+  assert.equal(r.rt_size(merged), 160);
+  r.rt_frame_pop(pinned.frame);
+  r.rt_collect();
+  assert.equal(r.rt_heap_top(), 4096);
+});
+
+test('shadow frames enforce slot bounds and LIFO release', async () => {
+  const { r } = await fresh();
+  traps(() => r.rt_frame_pop(0));
+  const outer = roots(r, 1);
+  const inner = roots(r, 1);
+  traps(() => r.rt_root_set(inner.frame, 3, 3n));
+  traps(() => r.rt_frame_pop(outer.frame));
+  r.rt_frame_pop(inner.frame);
+  r.rt_frame_pop(outer.frame);
 });
 
 test('pointer validation rejects immediates, null, misalignment and out-of-heap values', async () => {

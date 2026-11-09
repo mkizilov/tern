@@ -8,9 +8,9 @@ Both interpreters run the same real checked inputs and match exact golden bytes.
   >   cmp "${source%.tern}.out" ir.out || exit 1
   >   count=$((count + 1))
   > done
-  $ test "$count" -eq 15
+  $ test "$count" -eq 16
   $ printf '%s AST/IR/golden outputs agree\n' "$count"
-  15 AST/IR/golden outputs agree
+  16 AST/IR/golden outputs agree
 
 Dumping IR is not execution and gives named primitive operands.
 

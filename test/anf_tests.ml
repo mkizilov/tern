@@ -310,7 +310,7 @@ let%expect_test
     |> List.filter (fun file -> Filename.extension file = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun file ->
       let source =
@@ -353,4 +353,5 @@ let%expect_test
     13_nested_patterns.tern: AST = IR = golden bytes
     14_variant_tree.tern: AST = IR = golden bytes
     15_list_library.tern: AST = IR = golden bytes
+    interpreter.tern: AST = IR = golden bytes
     |}]

@@ -241,7 +241,7 @@ let%expect_test
     |> List.filter (fun name -> Filename.extension name = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun name ->
       let source =
@@ -275,6 +275,7 @@ let%expect_test
     13_nested_patterns.tern: declarations=4 round-trip=ok
     14_variant_tree.tern: declarations=5 round-trip=ok
     15_list_library.tern: declarations=11 round-trip=ok
+    interpreter.tern: declarations=7 round-trip=ok
     |}]
 
 let%expect_test "empty and comment-only programs round-trip" =

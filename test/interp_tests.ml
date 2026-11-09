@@ -273,7 +273,7 @@ let%expect_test "every example produces exactly the bytes in its out file" =
     |> List.filter (fun file -> Filename.extension file = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun file ->
       let source =
@@ -312,4 +312,5 @@ let%expect_test "every example produces exactly the bytes in its out file" =
     13_nested_patterns.tern: exact stdout matches 13_nested_patterns.out
     14_variant_tree.tern: exact stdout matches 14_variant_tree.out
     15_list_library.tern: exact stdout matches 15_list_library.out
+    interpreter.tern: exact stdout matches interpreter.out
     |}]

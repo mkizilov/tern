@@ -5,6 +5,8 @@ type context = {
   mutable division : bool;
   mutable remainder : bool;
   mutable next_label : int;
+  mutable roots : int Ids.t;
+  mutable allocation_slot : int;
 }
 
 type join_target = { block : string; parameters : Core.name list }
@@ -40,6 +42,31 @@ let call name arguments =
   "(call " ^ name
   ^ (if arguments = [] then "" else " " ^ String.concat " " arguments)
   ^ ")"
+
+let root_slot slot value =
+  call "$rt_root_set"
+    [ "(local.get $frame)"; "(i32.const " ^ string_of_int slot ^ ")"; value ]
+
+let root context (name : Core.name) =
+  root_slot
+    (Ids.find name.value.id context.roots)
+    ("(local.get " ^ variable name ^ ")")
+
+let invoke tail target environment argument code =
+  if not tail then target environment argument code
+  else
+    "(block (result i64)\n"
+    ^ indent
+        ("(local.set $call_env " ^ environment ^ ")\n(local.set $call_arg "
+       ^ argument ^ ")\n"
+        ^ (match code with
+          | None -> ""
+          | Some code -> "(local.set $call_code " ^ code ^ ")\n")
+        ^ call "$rt_frame_pop" [ "(local.get $frame)" ]
+        ^ "\n"
+        ^ target "(local.get $call_env)" "(local.get $call_arg)"
+            (Option.map (fun _ -> "(local.get $call_code)") code))
+    ^ ")"
 
 let primitive context (operator : Core.primitive Ast.located) arguments =
   let arguments = List.map (atom context) arguments in
@@ -102,6 +129,7 @@ let allocation context helper fields =
             ^ call helper
                 [ "(i32.const " ^ string_of_int (List.length fields) ^ ")" ]
             ^ ")";
+            root_slot context.allocation_slot "(local.get $allocation)";
           ]
          @ stores
          @ [ "(local.get $allocation)" ]))
@@ -114,7 +142,8 @@ let rec expression context joins tail (source : Closed.expr) =
       right_hand_side context joins true rhs
   | Let (name, rhs, body) ->
       let rhs = right_hand_side context joins false rhs in
-      "(local.set " ^ variable name ^ " " ^ rhs ^ ")\n"
+      "(local.set " ^ variable name ^ " " ^ rhs ^ ")\n" ^ root context name
+      ^ "\n"
       ^ expression context joins tail body
   | If (condition, yes, no) ->
       let condition = call "$rt_unbox_bool" [ atom context condition ] in
@@ -163,6 +192,7 @@ let rec expression context joins tail (source : Closed.expr) =
         @ List.rev_map
             (fun name -> "(local.set " ^ variable name ^ ")")
             target.parameters
+        @ List.map (root context) target.parameters
         @ [ "(br " ^ target.block ^ ")" ])
   | Switch (subject, arms, default) ->
       switch context joins tail subject arms default
@@ -265,18 +295,23 @@ and right_hand_side context joins tail (source : Closed.rhs) =
   match source.value with
   | Alias atom -> value atom
   | Direct_call (index, environment, argument) ->
-      "("
-      ^ (if tail then "return_call" else "call")
-      ^ " $fn" ^ string_of_int index ^ " " ^ value environment ^ " "
-      ^ value argument ^ ")"
+      invoke tail
+        (fun environment argument _ ->
+          "("
+          ^ (if tail then "return_call" else "call")
+          ^ " $fn" ^ string_of_int index ^ " " ^ environment ^ " " ^ argument
+          ^ ")")
+        (value environment) (value argument) None
   | Closure_call (callee, argument) ->
-      "("
-      ^ (if tail then "return_call_indirect" else "call_indirect")
-      ^ " (type $tern_function) "
-      ^ call "$rt_closure_environment" [ value callee ]
-      ^ " " ^ value argument ^ " "
-      ^ call "$rt_closure_code" [ value callee ]
-      ^ ")"
+      invoke tail
+        (fun environment argument code ->
+          "("
+          ^ (if tail then "return_call_indirect" else "call_indirect")
+          ^ " (type $tern_function) " ^ environment ^ " " ^ argument ^ " "
+          ^ Option.get code ^ ")")
+        (call "$rt_closure_environment" [ value callee ])
+        (value argument)
+        (Some (call "$rt_closure_code" [ value callee ]))
   | Primitive (operator, arguments) -> primitive context operator arguments
   | Builtin_apply (Core.Print_int, argument) ->
       call "$rt_print_int" [ value argument ]
@@ -383,35 +418,72 @@ let checked_arithmetic name instruction =
     \  (call $rt_int (%s (local.get $a) (local.get $b))))"
     name instruction
 
-let literal (text, index) =
+let literal offset (text, index) =
+  let size = (String.length text + 23) land -8 in
+  let block = Bytes.make size '\000' in
+  Bytes.set_int32_le block 0
+    (Int32.logor (Int32.shift_left (Int32.of_int (String.length text)) 8) 4l);
+  Bytes.blit_string text 0 block 16 (String.length text);
   let bytes =
-    String.to_seq text |> List.of_seq
+    Bytes.to_seq block |> List.of_seq
     |> List.map (fun c -> Printf.sprintf "\\%02x" (Char.code c))
     |> String.concat ""
   in
   Printf.sprintf
     ";; UTF-8 literal %d: %d bytes\n\
-     (data $data%d \"%s\")\n\
-     (func $literal%d (result i64) (local $string i64)\n\
-    \  (local.set $string (call $rt_string (i32.const %d)))\n\
-    \  (memory.init $data%d (call $rt_string_data (local.get $string)) \
-     (i32.const 0) (i32.const %d))\n\
-    \  (local.get $string))"
-    index (String.length text) index bytes index (String.length text) index
-    (String.length text)
+     (data (i32.const %d) \"%s\")\n\
+     (func $literal%d (result i64) (i64.const %d))"
+    index (String.length text) offset bytes index offset
+
+let frame_locals =
+  "(local $frame i32)\n\
+   (local $allocation i64)\n\
+   (local $result i64)\n\
+   (local $call_env i64)\n\
+   (local $call_arg i64)\n\
+   (local $call_code i32)\n"
+
+let roots context offset names =
+  context.roots <-
+    List.mapi
+      (fun index (name : Core.name) -> (name.value.id, index + offset))
+      names
+    |> List.to_seq |> Ids.of_seq;
+  context.allocation_slot <- offset + List.length names
+
+let enter context environment argument =
+  "(local.set $frame "
+  ^ call "$rt_frame_push"
+      [
+        "(i32.const " ^ string_of_int (context.allocation_slot + 1) ^ ")";
+        environment;
+        argument;
+      ]
+  ^ ")\n"
+
+let leave = call "$rt_frame_pop" [ "(local.get $frame)" ]
 
 let program (program : Closed.program) =
   try
     let context =
-      { strings = []; division = false; remainder = false; next_label = 0 }
+      {
+        strings = [];
+        division = false;
+        remainder = false;
+        next_label = 0;
+        roots = Ids.empty;
+        allocation_slot = 0;
+      }
     in
     let source_name = source_names program in
     let functions =
       List.map
         (fun (definition : Closed.function_definition) ->
           let f = definition.value in
+          let names = locals f.body in
+          roots context 0 (f.environment :: f.parameter :: names);
           let body = expression context Ids.empty true f.body in
-          let declarations = declarations (locals f.body) in
+          let declarations = declarations names in
           let name = source_name f.name in
           Printf.sprintf
             ";; source function %s#%d (code %d)\n\
@@ -421,9 +493,19 @@ let program (program : Closed.program) =
              )"
             name.value.spelling name.value.id f.index f.index
             (variable f.environment) (variable f.parameter)
-            (indent ("(local $allocation i64)\n" ^ declarations ^ "\n" ^ body)))
+            (indent
+               (frame_locals ^ declarations ^ "\n"
+               ^ enter context
+                   ("(local.get " ^ variable f.environment ^ ")")
+                   ("(local.get " ^ variable f.parameter ^ ")")
+               ^ "(local.set $result (block (result i64)\n" ^ indent body
+               ^ "))\n" ^ leave ^ "\n(local.get $result)")))
         program.value.functions
     in
+    let names =
+      List.map fst program.value.builtins @ locals program.value.body
+    in
+    roots context 2 names;
     let body = expression context Ids.empty false program.value.body in
     let initialization =
       List.map
@@ -434,18 +516,16 @@ let program (program : Closed.program) =
                 "(i32.const " ^ string_of_int index ^ ")";
                 call "$rt_environment" [ "(i32.const 0)" ];
               ]
-          ^ ")")
+          ^ ")\n" ^ root context name)
         program.value.builtins
     in
     let entry =
       "(func (export \"_start\")\n"
       ^ indent
-          ("(local $allocation i64)\n"
-          ^ declarations
-              (List.map fst program.value.builtins @ locals program.value.body)
-          ^ "\n"
+          (frame_locals ^ declarations names ^ "\n"
+          ^ enter context "(i64.const 3)" "(i64.const 3)"
           ^ String.concat "\n" initialization
-          ^ "\n(drop (block (result i64)\n" ^ indent body ^ "))")
+          ^ "\n(drop (block (result i64)\n" ^ indent body ^ "))\n" ^ leave)
       ^ "\n)"
     in
     let arithmetic =
@@ -468,13 +548,39 @@ let program (program : Closed.program) =
              program.value.functions)
       ^ ")"
     in
-    let runtime = String.trim Runtime_assets.wat in
+    let base, literals =
+      List.fold_left
+        (fun (offset, literals) ((text, _) as value) ->
+          if String.length text > 16777215 then
+            Diagnostic.fail program.span
+              "string literal exceeds the runtime size limit";
+          let next = offset + ((String.length text + 23) land -8) in
+          if next > 67108864 then
+            Diagnostic.fail program.span
+              "static literals exceed the linear-memory limit";
+          (next, literal offset value :: literals))
+        (4096, []) context.strings
+    in
+    let runtime =
+      String.split_on_char '\n' (String.trim Runtime_assets.wat)
+      |> List.map (fun line ->
+          if String.starts_with ~prefix:"  (global $heap " line then
+            Printf.sprintf "  (global $heap (mut i32) (i32.const %d))" base
+          else if String.starts_with ~prefix:"  (global $heap_base " line then
+            Printf.sprintf
+              "  (global $heap_base (export \"rt_heap_base\") i32 (i32.const \
+               %d))"
+              base
+          else if String.starts_with ~prefix:"  (memory " line then
+            Printf.sprintf "  (memory (export \"memory\") %d 1024)"
+              ((base + 65535) / 65536)
+          else line)
+      |> String.concat "\n"
+    in
     Ok
       (String.sub runtime 0 (String.length runtime - 1)
       ^ "\n"
       ^ String.concat "\n\n"
-          ([ table ] @ arithmetic
-          @ List.map literal context.strings
-          @ functions @ [ entry ])
+          ([ table ] @ arithmetic @ List.rev literals @ functions @ [ entry ])
       ^ "\n)\n")
   with Diagnostic.Raised diagnostic -> Error diagnostic

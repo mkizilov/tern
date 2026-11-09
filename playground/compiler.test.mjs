@@ -11,13 +11,26 @@ const compiler = context.TernCompiler;
 
 test('the actual js_of_ocaml compiler and wabt execute every golden example byte-for-byte', async () => {
   const files = readdirSync('examples').filter(file => file.endsWith('.tern')).sort();
-  assert.equal(files.length, 15);
+  assert.equal(files.length, 16);
   for (const file of files) {
     const result = compiler.compile(readFileSync(`examples/${file}`, 'utf8'));
     assert.equal(result.ok, true, file);
     assert.ok(result.ir.length && result.wat.includes('(module'), file);
     const chunks = [];
     await execute(await assemble(result.wat), bytes => chunks.push(Buffer.from(bytes)));
+    assert.deepEqual(Buffer.concat(chunks), readFileSync(`examples/${file.replace('.tern', '.out')}`), file);
+  }
+});
+
+test('every example survives collection before every allocation, including root-frame allocation', async () => {
+  const needle = '(local.set $pointer (call $find_free (local.get $total)))';
+  for (const file of readdirSync('examples').filter(file => file.endsWith('.tern')).sort()) {
+    const result = compiler.compile(readFileSync(`examples/${file}`, 'utf8'));
+    assert.equal(result.ok, true, file);
+    assert.ok(result.wat.includes(needle));
+    const wat = result.wat.replace(needle, `(call $rt_collect)\n${needle}`);
+    const chunks = [];
+    await execute(await assemble(wat), bytes => chunks.push(Buffer.from(bytes)));
     assert.deepEqual(Buffer.concat(chunks), readFileSync(`examples/${file.replace('.tern', '.out')}`), file);
   }
 });
@@ -57,4 +70,16 @@ test('browser-host execution preserves output preceding a runtime trap', async (
 test('the browser host rejects out-of-bounds print requests', async () => {
   const binary = await assemble('(module (import "tern" "print_string" (func $print (param i32 i32))) (memory (export "memory") 1) (func (export "_start") i32.const 65535 i32.const 2 call $print))');
   await assert.rejects(execute(binary, () => assert.fail('invalid bytes reached output')), /outside Wasm memory/);
+});
+
+test('the README language-tour programs compile and execute', async () => {
+  const programs = [...readFileSync('README.md', 'utf8').matchAll(/```ocaml\n([\s\S]*?)```/g)];
+  assert.equal(programs.length, 2);
+  for (let i = 0; i < programs.length; i++) {
+    const result = compiler.compile(programs[i][1]);
+    assert.equal(result.ok, true);
+    const chunks = [];
+    await execute(await assemble(result.wat), bytes => chunks.push(Buffer.from(bytes)));
+    assert.equal(Buffer.concat(chunks).toString(), i === 0 ? '42\n' : '');
+  }
 });

@@ -7,9 +7,9 @@ The real command must reproduce the complete golden corpus without trimming.
   >   cmp "$expected" actual.out || exit 1
   >   count=$((count + 1))
   > done
-  $ test "$count" -eq 15
+  $ test "$count" -eq 16
   $ printf '%s interpreter outputs matched byte-for-byte\n' "$count"
-  15 interpreter outputs matched byte-for-byte
+  16 interpreter outputs matched byte-for-byte
 
 Output already written survives a runtime error; diagnostics stay on stderr.
 

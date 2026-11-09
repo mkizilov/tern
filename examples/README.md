@@ -1,9 +1,8 @@
 # Example corpus
 
 Each program is self-contained. Its matching `.out` is exact UTF-8 stdout;
-print built-ins do not add newlines. These are specification fixtures, not
-programs that the initial project can execute. Future interpreter and Wasm
-integration tests must compare actual output byte-for-byte, not trim whitespace.
+print built-ins do not add newlines. All 16 programs run through AST/IR/native
+Wasm and browser Wasm tests. Outputs are compared byte-for-byte, without trimming.
 
 | Program | Coverage |
 | --- | --- |
@@ -22,3 +21,4 @@ integration tests must compare actual output byte-for-byte, not trim whitespace.
 | `13_nested_patterns` | Nested variants/tuples, literals and wildcards |
 | `14_variant_tree` | Recursive trees and two-parameter result types |
 | `15_list_library` | User-defined lists with map, filter, left fold |
+| `interpreter` | Arithmetic-expression interpreter and pretty-printer written in Tern |

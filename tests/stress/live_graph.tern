@@ -1,0 +1,5 @@
+type list = Nil | Cons of (int * list);;
+let rec build n rest = if n = 0 then rest else build (n - 1) (Cons (n, rest));;
+let rec sum values total = match values with Nil -> total | Cons (head, tail) -> sum tail (total + head);;
+let values = build 20000 Nil;;
+let () = print_int (sum values 0); print_string "\n";;

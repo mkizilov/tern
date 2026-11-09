@@ -542,7 +542,7 @@ let%expect_test
     |> List.filter (fun name -> Filename.extension name = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun file ->
       let source =
@@ -573,4 +573,5 @@ let%expect_test
     13_nested_patterns.tern: resolved and Core identities verified
     14_variant_tree.tern: resolved and Core identities verified
     15_list_library.tern: resolved and Core identities verified
+    interpreter.tern: resolved and Core identities verified
     |}]

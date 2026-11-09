@@ -278,5 +278,13 @@ tree walker; `ternc run --ir file.tern` runs its A-normal, closure-converted
 lowering. Both execute top-level declarations in order and add no implicit
 output. Runtime diagnostics go separately to stderr; bytes already emitted by
 the source program remain on stdout. This interpreter defines the behavior the
-future Wasm backend must match. Host stack/memory limits can still stop a run;
+compiled Wasm backend must match. Host stack/memory limits can still stop a run;
 the interpreter reports those resource failures on a best-effort basis.
+
+The compiled runtime uses non-moving mark-sweep collection and compiler shadow
+roots. Collection is not a source operation and does not change lexical scope,
+value identity rules, evaluation order, or output. Its linear-memory cap remains
+64 MiB; conservative root retention, fragmentation, or a large live set can still
+cause resource exhaustion. Immutable literal strings live in a static region.
+The exact allocation count and point of resource failure are not semantic
+equivalence guarantees across optimization modes or execution engines.

@@ -1,5 +1,10 @@
 # IR optimization measurements
 
+**Historical turn-15 measurements, before the turn-17 collector and 16-byte
+headers.** The table below is retained as observed, not relabeled as current GC
+performance. Re-running the documented runner measures the current collector and
+labels ending managed bytes instead of the old bump-only metric.
+
 Observed on v26.13.0, darwin/arm64; wasm-tools 1.263.0 (7a2fa422c 2026-10-30).
 Compiler: project-local OCaml 5.4.1. Five fixed programs, six configurations. Each cell is validated and checked against AST stdout.
 

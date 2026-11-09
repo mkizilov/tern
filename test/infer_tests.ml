@@ -399,7 +399,7 @@ let%expect_test "all example programs type-check with a unit program result" =
     |> List.filter (fun file -> Filename.extension file = ".tern")
     |> List.sort String.compare
   in
-  assert (List.length files = 15);
+  assert (List.length files = 16);
   List.iter
     (fun file ->
       let source =
@@ -430,4 +430,5 @@ let%expect_test "all example programs type-check with a unit program result" =
     13_nested_patterns.tern: type-checks
     14_variant_tree.tern: type-checks
     15_list_library.tern: type-checks
+    interpreter.tern: type-checks
     |}]

@@ -10,9 +10,9 @@ The entire corpus is compiled, validated, executed, and compared byte-for-byte.
   >   cmp built.out run.out || exit 1
   >   count=$((count + 1))
   > done
-  $ test "$count" -eq 15
+  $ test "$count" -eq 16
   $ printf '%s compiled example outputs match golden bytes\n' "$count"
-  15 compiled example outputs match golden bytes
+  16 compiled example outputs match golden bytes
 
 Embedded runtime and runner assets work from a directory with no repository assets.
 

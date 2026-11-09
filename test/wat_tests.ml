@@ -79,13 +79,16 @@ let%expect_test
     i32.ge_s
     |}]
 
-let%expect_test
-    "passive byte literals do not occupy a fixed static memory region" =
+let%expect_test "immutable UTF-8 literal blocks precede the collected heap" =
   let wat = emit {|let () = print_string "é\n";;|} in
-  assert (contains wat "(data $data0 \"\\c3\\a9\\0a\")");
-  assert (contains wat "(memory.init $data0");
-  print_endline "UTF-8 bytes are copied into a fresh runtime string";
-  [%expect {| UTF-8 bytes are copied into a fresh runtime string |}]
+  assert (contains wat "(data (i32.const 4096)");
+  assert (contains wat "\\c3\\a9\\0a");
+  assert (
+    contains wat
+      "(global $heap_base (export \"rt_heap_base\") i32 (i32.const 4120))");
+  assert (contains wat "(func $literal0 (result i64) (i64.const 4096))");
+  print_endline "UTF-8 literals are immortal; atom evaluation cannot collect";
+  [%expect {| UTF-8 literals are immortal; atom evaluation cannot collect |}]
 
 let%expect_test
     "generated binary validates and executes with full integer boundaries" =
@@ -95,6 +98,38 @@ let%expect_test
     -2147483648 -2147483648
     status=0
     |}]
+
+let%expect_test
+    "shadow roots cover bindings and tail arguments outlive frame release" =
+  let wat =
+    emit
+      "let rec loop n = if n = 0 then 42 else loop (n-1);; let () = print_int \
+       (loop 10);;"
+  in
+  assert (contains wat "(call $rt_frame_push");
+  assert (contains wat "(call $rt_root_set");
+  assert (contains wat "(local.set $call_env");
+  assert (contains wat "(local.set $call_arg");
+  assert (contains wat "(call $rt_frame_pop (local.get $frame))");
+  assert (contains wat "(local.get $call_env) (local.get $call_arg)");
+  print_endline
+    "incoming parameters, bindings, scratch, and outgoing tail values have \
+     explicit root lifetimes";
+  [%expect
+    {| incoming parameters, bindings, scratch, and outgoing tail values have explicit root lifetimes |}]
+
+let%expect_test
+    "static strings larger than one page reserve enough initial memory" =
+  let wat = emit ("let text = \"" ^ String.make 70000 'x' ^ "\";;") in
+  assert (contains wat "(memory (export \"memory\") 2 1024)");
+  assert (
+    contains wat
+      "(global $heap_base (export \"rt_heap_base\") i32 (i32.const 74112))");
+  print_endline
+    "large immutable literals are inside initial memory, before managed \
+     allocation";
+  [%expect
+    {| large immutable literals are inside initial memory, before managed allocation |}]
 
 let%expect_test "false is unboxed and an unused branch is not evaluated" =
   run {|let () = if false then print_int (1 / 0) else print_string "else\n";;|};
