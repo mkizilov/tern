@@ -187,6 +187,22 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(any(c.startswith("opam switch ") for c in self.calls()))
         self.assert_scratch_clean()
 
+    def test_mocked_setup_accepts_release_metadata_without_accepting_other_versions(self):
+        self.assertEqual(self.run_script("setup.sh").returncode, 0)
+        binary = self.root / ".tools" / "bin" / "wasm-tools"
+        original = binary.read_text()
+        binary.write_text(original.replace("wasm-tools 1.263.0", "wasm-tools 1.263.0 (release-hash 2026-10-30)"))
+        self.log.unlink()
+        result = self.run_script("setup.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any(c.startswith("curl ") for c in self.calls()))
+        binary.write_text(original.replace("wasm-tools 1.263.0", "wasm-tools 1.263.00"))
+        self.log.unlink()
+        result = self.run_script("setup.sh")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c.startswith("curl ") for c in self.calls()))
+        self.assert_scratch_clean()
+
     def test_checksum_failure_installs_nothing_and_cleans_scratch(self):
         (self.root / "scripts" / "tool-checksums.sha256").write_text(
             "0" * 64 + "  opam-2.6.1-arm64-macos\n"
@@ -538,6 +554,25 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("wabt", package["dependencies"])
         for version in {**package["dependencies"], **package["devDependencies"]}.values():
             self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+
+    def test_project_mit_metadata_and_preserved_third_party_notices(self):
+        license_text = (ROOT / "LICENSE").read_text()
+        self.assertIn("Copyright (c) 2026 Mykyta Kizilov", license_text)
+        for clause in ("Permission is hereby granted, free of charge", "included in all", "THE SOFTWARE IS PROVIDED", "SOFTWARE."):
+            self.assertIn(clause, license_text)
+        package = json.loads((ROOT / "package.json").read_text())
+        lock = json.loads((ROOT / "package-lock.json").read_text())
+        self.assertEqual(package["license"], "MIT")
+        self.assertEqual(lock["packages"][""]["license"], "MIT")
+        self.assertIn("(license MIT)", (ROOT / "dune-project").read_text())
+        self.assertIn('license: "MIT"', (ROOT / "ternc.opam").read_text())
+        notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text()
+        for relative in re.findall(r"\]\((licenses/[^)]+)\)", notices):
+            self.assertTrue((ROOT / relative).is_file(), relative)
+        self.assertIn("special exception", (ROOT / "licenses/OCaml.txt").read_text())
+        self.assertIn("special exception", (ROOT / "licenses/js_of_ocaml.txt").read_text())
+        self.assertIn("SPECIAL", (ROOT / "licenses/gen.txt").read_text())
+        self.assertIn("wabt@1.0.39", (ROOT / "licenses/npm-runtime.txt").read_text())
 
     def test_roadmap_has_prioritized_complete_steps_and_consistent_estimates(self):
         def capture(pattern, text):

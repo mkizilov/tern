@@ -46,14 +46,19 @@ if [ ! -x "$ROOT/.tools/bin/opam" ] || [ "$(opam --version)" != "$OPAM_VERSION" 
     mv "$scratch/$asset" "$ROOT/.tools/bin/opam"
 fi
 
-if [ ! -x "$ROOT/.tools/bin/wasm-tools" ] || [ "$(wasm-tools --version)" != "wasm-tools $WASM_TOOLS_VERSION" ]; then
+wasm_version=
+if [ -x "$ROOT/.tools/bin/wasm-tools" ]; then wasm_version=$(wasm-tools --version); fi
+case "$wasm_version" in
+  "wasm-tools $WASM_TOOLS_VERSION"|"wasm-tools $WASM_TOOLS_VERSION ("*")") ;;
+  *)
     asset="wasm-tools-$WASM_TOOLS_VERSION-$wasm_arch-$os.tar.gz"
     download "https://github.com/bytecodealliance/wasm-tools/releases/download/v$WASM_TOOLS_VERSION" "$asset"
     tar -xzf "$scratch/$asset" -C "$scratch" \
         "wasm-tools-$WASM_TOOLS_VERSION-$wasm_arch-$os/wasm-tools"
     chmod +x "$scratch/wasm-tools-$WASM_TOOLS_VERSION-$wasm_arch-$os/wasm-tools"
     mv "$scratch/wasm-tools-$WASM_TOOLS_VERSION-$wasm_arch-$os/wasm-tools" "$ROOT/.tools/bin/wasm-tools"
-fi
+    ;;
+esac
 
 if [ ! -f "$OPAMROOT/config" ]; then
     opam init --bare --no-setup --yes

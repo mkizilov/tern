@@ -104,6 +104,14 @@
 - Declare dependencies in `dune-project`; regenerate and commit `ternc.opam`.
   Do not hand-maintain divergent dependency lists. Do not commit toolchains,
   caches, build outputs, or temporary test fixtures.
+- Keep project-owned license metadata consistent with the root MIT LICENSE.
+  Preserve upstream texts in `licenses/` and THIRD_PARTY_NOTICES.md in native/site
+  distributions. Use neutral technical presentation language; retain required
+  copyright notices and normal code-generation/tool references.
+- `python3 scripts/check-publication.py` checks publishable paths, presentation
+  wording, personal paths, and secrets with pinned local Gitleaks 8.30.1, including
+  all referenced history. Never rewrite commits or author/committer identities to
+  conceal a finding; report historical blockers instead.
 - `runtime/runtime.wat` defines the memory/value ABI in `DESIGN.md`: tagged i64
   values preserve all int32s, 8-byte-aligned blocks have 16-byte GC headers, and
   closures use a table index plus an environment pointer. Do not shrink int32

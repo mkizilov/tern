@@ -1,25 +1,28 @@
 # Tern roadmap
 
 This is prioritized **future work**, not a list of functionality already shipped.
-The reviewed compiler baseline is `290fbf3`. See [VERIFICATION.md](VERIFICATION.md)
+The reviewed implementation baseline is `3e507f4`, followed by the documented
+MIT, distribution-notice, and setup-verification fixes. See [VERIFICATION.md](VERIFICATION.md)
 for current evidence and [DESIGN.md](DESIGN.md) for implementation contracts.
 
 The original language/compiler, four opt-in optimizations, five benchmarks,
 browser playground, interpreter showcase, and mark-sweep stretch goal are
 implemented. Remaining work is primarily verification depth, runtime diagnostics,
-resource hardening, reproducibility, and publication readiness. In particular,
-`opam lint ternc.opam` currently fails for missing maintainer metadata and reports
-additional publication-field warnings. Nothing below should be advertised as
+resource hardening, reproducibility, and release automation. MIT licensing,
+owner-supplied authorship/maintainer metadata, preserved upstream notices, and
+local source-distribution checks are complete. Opam lint has no errors; canonical
+homepage/issue URLs remain unset rather than guessed before repository creation.
+Nothing below should be advertised as
 implemented merely because it has an estimate.
 
 ### Priority and estimate assumptions
 
 - Steps 1–7 address correctness/security gaps first: **98 hours**.
 - Steps 8–13 address reproducibility, compatibility, evidence, and release gates:
-  **70 hours**. Release metadata precedes the lower-priority additions.
+  **66 hours**. Release metadata precedes the lower-priority additions.
 - Steps 14–16 are later improvements/features: **48 hours**.
-- **Total estimate: 216 engineer-hours**, plus **54 hours contingency** (25%),
-  for a **270-hour planning budget**. This is effort, not a delivery-date promise.
+- **Total estimate: 212 engineer-hours**, plus **53 hours contingency** (25%),
+  for a **265-hour planning budget**. This is effort, not a delivery-date promise.
 - Estimates include implementation, focused regressions, review, documentation,
   and relevant existing checks. One engineer is assumed to know OCaml/Wasm/JS and
   have the current local toolchain. Existing CI runners/SDKs and owner-approved
@@ -203,20 +206,21 @@ implemented merely because it has an estimate.
   unsupported reuse. Native/browser documentation describes the same contract.
 - **Effort:** 10 hours.
 
-## 13. Complete owner-approved publication and legal metadata
+## 13. Confirm canonical repository URLs and repeatable release artifacts
 
-- **Scope:** Finish license/provenance and maintainer/authorship/homepage/bug-report
-  fields in source metadata, regenerate the opam file, and validate a local source
-  distribution. Publishing remains an owner-controlled operation.
-- **Rationale:** `opam lint` currently reports error 23 (maintainer) and warnings
-  25/35/36/68. Native test success does not make the package release-ready. Owner
-  identity and repository URLs must not be invented.
-- **Dependencies:** 8, 9, 10, 12; owner-approved facts.
-- **Acceptance criteria:** Lint has no errors and all remaining warnings are
-  resolved or explicitly justified; license/attributions and generated metadata
-  agree. A clean local distribution passes its declared checks. No credentials,
-  remote publication, or global configuration are needed for repository checks.
-- **Effort:** 8 hours.
+- **Scope:** Add the actual project homepage/issue URLs once the repository exists
+  under the approved owner, then automate versioned artifact/provenance checks
+  against that canonical source. Publishing remains an owner-controlled operation.
+- **Rationale:** MIT, owner metadata, legal distribution assets, history scanning,
+  and local source-package checks are now verified. Lint warnings 35/36 remain
+  because no canonical repository/issue URL was provided; inventing one would not
+  complete release verification. Cross-platform release results are still absent.
+- **Dependencies:** 8, 9, 10, 12; canonical owner-approved URLs.
+- **Acceptance criteria:** Generated metadata uses real reachable project URLs,
+  all lint warnings are resolved or explicitly justified, and release artifacts
+  retain licenses/notices and pass repeatable clean-source checks. No credentials
+  or remote publication are required by the repository-local verification gate.
+- **Effort:** 4 hours.
 
 ## 14. Reduce conservative root retention and leaf-call overhead
 

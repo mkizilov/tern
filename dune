@@ -1,3 +1,9 @@
+(install
+ (section doc)
+ (files
+  THIRD_PARTY_NOTICES.md
+  (glob_files licenses/*.txt)))
+
 (rule
  (alias runtest)
  (deps
@@ -11,6 +17,9 @@
   README.md
   ROADMAP.md
   VERIFICATION.md
+  LICENSE
+  THIRD_PARTY_NOTICES.md
+  (source_tree licenses)
   lib/optimize.ml
   lib/dune
   lib/grammar.messages

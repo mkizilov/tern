@@ -1,6 +1,8 @@
 {
   "name": "tern-playground",
   "private": true,
+  "license": "MIT",
+  "author": "Mykyta Kizilov",
   "type": "module",
   "scripts": {
     "build": "bash scripts/build-site.sh",

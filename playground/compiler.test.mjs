@@ -83,3 +83,11 @@ test('the README language-tour programs compile and execute', async () => {
     assert.equal(Buffer.concat(chunks).toString(), i === 0 ? '42\n' : '');
   }
 });
+
+test('the static distribution preserves the project license and all upstream notices', () => {
+  for (const name of ['LICENSE', 'THIRD_PARTY_NOTICES.md', ...readdirSync('licenses').map(file => `licenses/${file}`)]) {
+    assert.deepEqual(readFileSync(`site/${name}`), readFileSync(name), name);
+  }
+  assert.match(readFileSync('site/index.html', 'utf8'), /href="notices\.html"/);
+  assert.match(readFileSync('site/notices.html', 'utf8'), /Copyright \(c\) 2026 Mykyta Kizilov/);
+});

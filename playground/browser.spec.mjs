@@ -115,3 +115,12 @@ test('late example loading never overwrites an edited program and the run shortc
   await expect(page.getByRole('status')).toHaveText('Completed');
   expect(await page.locator('#output').textContent()).toBe('9');
 });
+
+test('the distributed legal page exposes MIT and preserved upstream terms', async ({ page }) => {
+  await page.getByRole('link', { name: 'License notices', exact: true }).click();
+  await expect(page).toHaveTitle('License notices · Tern');
+  await expect(page.locator('main')).toContainText('Copyright (c) 2026 Mykyta Kizilov');
+  await expect(page.locator('main')).toContainText('special exception');
+  await expect(page.locator('main')).toContainText('UNICODE LICENSE V3');
+  await expect(page.locator('main')).toContainText('wabt@1.0.39');
+});

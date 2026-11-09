@@ -4,6 +4,10 @@
 
 (version 0.1.0)
 
+(authors "Mykyta Kizilov")
+(maintainers "Mykyta Kizilov")
+(license MIT)
+
 (generate_opam_files true)
 
 (using menhir 3.0)

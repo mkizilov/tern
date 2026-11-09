@@ -1,6 +1,7 @@
 # Verification scope and evidence
 
-Reviewed on **2026-11-08**, against implementation baseline `290fbf3`. This is a
+Reviewed on **2026-11-08**, against baseline `3e507f4` plus the final licensing,
+distribution-notice, and setup-idempotency fixes. This is a
 maintained verification guide, not a claim of complete correctness or a security
 certification. `ROADMAP.md` lists work not yet implemented. `DESIGN.md` retains
 historical development observations; this document states the current evidence.
@@ -24,9 +25,9 @@ historical development observations; this document states the current evidence.
 | Collector | Mark-sweep, shadow roots, iterative cyclic tracing, coalescing, helper safepoints, OOM and stress assertions | Conservative local retention, fragmentation, manual host rooting, and discard-after-trap contract; no compaction or trap unwinder |
 | Runtime errors | Front-end errors have rendered real spans; runtime failures retain prior output | Compiled runtime traps are not source-mapped; generic Wasm traps do not expose a full fault taxonomy |
 | Playground | Real js_of_ocaml compiler, wabt assembly, worker execution, same-origin static GETs, Unicode highlights, limits, cancellation, and viewport tests | Chromium only; Safari/Firefox, actual mobile devices, and hard JS-worker heap isolation are unverified |
-| Setup | Existing macOS/ARM64 switch works; offline mocks check platform asset selection, checksums, spaces, worker limits, and failure cleanup | Mocked Linux/x86 selections are not clean installations; ordinary external HOME/cache paths intentionally fail the local-state guard |
+| Setup | Real setup replay passes; opam/GitHub/npm DNS and downloads work; mocks check asset selection, checksums, version metadata, spaces, and cleanup | Replay uses the existing macOS/ARM64 switch, not a clean cross-platform bootstrap; external HOME/cache paths intentionally fail the local-state guard |
 | Dependencies | Exact npm lock; pinned tool releases/checksums; npm audit reported zero known advisories | Most opam library versions are not locked to a repository snapshot; advisory absence is not a source/engine security audit |
-| Publication | Dune-generated opam metadata and a local CLI/library build exist | **Blocked:** opam lint fails for maintainer metadata and reports additional publication-field warnings; no release-readiness claim |
+| Publication | Complete project MIT license; owner-supplied author/maintainer fields; preserved upstream notices; native/site legal distribution and clean-source package checks | Lint has no errors but warnings 35/36 remain for canonical project/issue URLs, which are not guessed before repository creation; no remote publication claim |
 
 The runtime host is not advertised as a hardened arbitrary-Wasm service. The
 playground compiles typed Tern, exposes only printing imports, and uses a worker
@@ -47,6 +48,7 @@ npm test
 npm run test:browser
 npm audit --json --cache "$XDG_CACHE_HOME/npm"
 .tools/bin/opam lint ternc.opam
+python3 scripts/check-publication.py
 ```
 
 `scripts/check.sh` is the **native** build/test/format gate; it does not stand in
@@ -74,8 +76,8 @@ as source fixtures; do not change expected output to conceal a mismatch.
 The final native/site/JavaScript/Chromium checks are rerun for this review; their
 scope is the local toolchain, not an unexecuted platform matrix. The suites cover:
 
-- 32 offline infrastructure/document contracts, including roadmap field/dependency
-  validation, estimate arithmetic, and preserved repository boundaries;
+- 34 offline infrastructure/document contracts, including roadmap arithmetic,
+  license metadata/notices, exact setup-version matching, and repository boundaries;
 - 16 examples and five curated programs through AST/IR/Wasm, with baseline,
   individual passes, and every pass enabled;
 - 150 cases per default execution property and 500 typed generation/shrink cases;
@@ -86,12 +88,12 @@ scope is the local toolchain, not an unexecuted platform matrix. The suites cove
   value-sensitive captures retained across collecting non-tail calls;
 - a 20,000-node retained list, required growth, iterative tracing, and complete
   reclamation after the source invocation;
-- seven generated-JavaScript tests, including all examples with collection forced
+- eight generated-JavaScript tests, including all examples with collection forced
   before every allocation through the default non-optimized browser compiler,
-  plus executable README tour snippets;
-- eight real Chromium UI tests, including all dropdown examples, errors/warnings,
+  plus executable README tour snippets and byte-exact distributed notices;
+- nine real Chromium UI tests, including all dropdown examples, errors/warnings,
   partial runtime output, cancellation, limits, safe text, tab keys, edit races,
-  and responsive viewport layout.
+  responsive viewport layout, and the readable license page.
 
 The current-GC benchmark runner was also replayed across **all 30 configurations**
 (five programs × baseline/four individual passes/all). Every configuration
@@ -105,10 +107,53 @@ production/development dependency graph. The registry response is date-specific
 and does not prove the compiler, browser engine, or dependencies are vulnerability-
 free. No dependency update was justified by that result.
 
-`opam lint ternc.opam` exited **1**: error 23 (missing maintainer), with warnings
-25 (authors), 35 (homepage), 36 (bug-reports), and 68 (license). These publication
-facts remain pending owner-approved work. They are not silently folded into a
-passing native gate or filled with invented identities/URLs.
+`opam lint ternc.opam` now exits **0**. The supplied copyright owner is represented
+in Dune-generated author/maintainer fields, and project license metadata is MIT
+in Dune/opam/npm. Warnings 35 (homepage) and 36 (bug-reports) remain because no
+canonical project repository URL was provided. The approved GitHub owner is
+`mkizilov`; a nonexistent project/issue URL or personal email is not invented.
+
+## Licensing and publication hygiene
+
+The root MIT license is complete with copyright **2026 Mykyta Kizilov**. Native
+documentation and the static site retain it, THIRD_PARTY_NOTICES.md, and verbatim
+upstream texts (including OCaml/js_of_ocaml/Menhir linking exceptions, MIT/ISC/BSD
+terms, Unicode data terms, and all 15 bundled npm runtime dependency notices).
+The browser legal page makes those terms readable; byte-for-byte tests protect
+the original text assets. Dependencies are not relabeled as project-owned MIT.
+
+The native package is also built/tested from a temporary clean source snapshot
+using the existing local switch, then installed to a temporary repository-local
+prefix. The installed CLI is executed and installed legal texts are checked.
+This is a clean-source/package check, not a fresh toolchain or remote installation.
+
+Gitleaks **8.30.1** was downloaded locally from its official release and verified
+against the release checksum. The reviewed macOS/ARM64 archive SHA-256 is
+`b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5`.
+The official assets/checksums are at
+https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1 . Install the matching
+verified binary under `.tools/bin/gitleaks`, never globally. The publication script
+requires that version, uses default rules with redacted output and bounded time,
+scans a current tracked/unignored-source snapshot and all referenced Git history,
+and removes its temporary snapshot. No baseline suppression or history rewrite
+is used. It additionally rejects tracked build/cache artifacts, project creation-
+attribution wording, and personal machine paths in project-owned text. Copyright
+and required third-party notices are preserved.
+
+No secret finding or current personal-machine path was detected. Historical
+`AGENTS.md` at initial commit `4b3801f` contains a non-secret local workspace path,
+removed from the current tree by `3e507f4`; that historical privacy breadcrumb
+remains because history is not rewritten. It is not a detected credential, and
+owner review of retained historical metadata is still appropriate. All earlier
+commit hashes, branch/tag references, and author/committer identities are retained.
+The only creation-wording search hit was a technical description of a private
+record produced by Check.prepare, not project creation attribution.
+
+The setup replay exposed and fixed an exact-string version comparison that would
+redownload wasm-tools 1.263.0 merely because its version includes commit/date
+metadata. A regression accepts only the exact pinned version with optional release
+metadata, rejects 1.263.00, and retains checksum/failure-cleanup tests. Earlier DNS
+failures remain historical observations in DESIGN.md, not current limitations.
 
 ## Observed tools and unverified environments
 
@@ -121,11 +166,14 @@ passing native gate or filled with invented identities/URLs.
 | wasm-tools | 1.263.0 (7a2fa422c, 2026-10-30) |
 | Node / npm | v26.13.0 / 11.20.0 |
 | Browser tooling | pinned Playwright 1.65.0 Chromium headless shell, one worker |
+| Secret scanning | project-local Gitleaks 8.30.1, default rules, full referenced history |
 
-Fresh network bootstrap, Linux/x86_64 execution, other Node versions, Firefox,
+Fresh-switch bootstrap, Linux/x86_64 execution, other Node versions, Firefox,
 WebKit/Safari, actual mobile devices, public deployment, publication, and isolated
 performance benchmarks were **not verified here**. Docker/hardware/host-service
 access is neither required nor exercised.
+Signing credentials were not accessed and no signed artifact is claimed. No
+GitHub repository was created and no push or public deployment was performed.
 
 AFT lacks ocamllsp and uses a fallback JavaScript analyzer; its partial snapshot
 is not an OCaml clean bill of health. Native compilation/tests and executed Wasm

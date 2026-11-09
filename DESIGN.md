@@ -1784,3 +1784,46 @@ The default and optimized two-million-iteration stress tests and retained-graph
 assertions were executed, not extrapolated from RSS. Safari/Firefox and isolated
 GC latency benchmarks were not run. AFT still lacks OCaml analysis and treats
 Cram as Perl, so native compilation/expect/Cram execution is authoritative.
+
+## MIT publication preparation
+
+Project-owned sources/documentation now carry the complete root MIT license with
+the supplied copyright, 2026 Mykyta Kizilov. Dune owns author/maintainer/license
+metadata and regenerates ternc.opam; npm metadata/lock agree on MIT. No author or
+committer identity/history was rewritten. Neutral technical presentation is kept
+separate from required copyright and third-party notices.
+
+THIRD_PARTY_NOTICES.md inventories the reviewed linked/native/data dependencies
+and fifteen bundled npm runtime packages. Verbatim upstream terms are stored in
+licenses/, including the OCaml/js_of_ocaml/Menhir linking exceptions and Unicode
+data notice. Both the native documentation installation and site preserve those
+texts; the browser footer opens a readable legal page. License-distribution tests
+compare bytes, not only SPDX labels or minifier comments.
+
+The existing local setup was replayed successfully with working opam/GitHub/npm
+network access. An installer idempotency regression was corrected: pinned
+wasm-tools output may contain parenthesized commit/date metadata. The version
+check accepts that exact release, rejects a lookalike version, and retains all
+download checksum/failure-cleanup checks. Historical DNS/linker failures above
+are not current installation claims.
+
+A clean source-only temporary package was built and tested in release/package
+mode using the existing switch, installed to an internal temporary prefix, and
+executed in all three CLI modes. Its installed license/index/upstream texts were
+verified byte-for-byte. A first verification command combined Dune's -p alias
+(which already selects the current root) with --root; removing that redundant
+option fixed the verification command, without disabling package tests.
+
+Gitleaks 8.30.1 was installed locally with its release SHA-256 verified. The
+publication check scans current publishable text paths and all referenced Git
+history with default secret rules, redaction, and a timeout, while rejecting
+tracked caches/build artifacts and personal paths in project-owned text. It
+does not add suppressions or rewrite historical content. The historical initial
+AGENTS.md workspace-path breadcrumb is disclosed in VERIFICATION.md; it is not a
+detected credential. Required dependency copyright notices remain untouched.
+
+Opam lint now exits successfully with only warnings 35/36 for unspecified
+canonical homepage/issue URLs. The approved owner is mkizilov; actual repository
+creation, URL confirmation, signing, and publication remain outside this local
+pass. VERIFICATION.md records final command evidence and remaining platform gaps;
+ROADMAP.md retains sixteen concrete future steps and updated remaining effort.

@@ -4,6 +4,9 @@ version: "0.1.0"
 synopsis: "Tern functional language compiler targeting WebAssembly"
 description:
   "A statically typed functional language with Hindley-Milner inference."
+maintainer: ["Mykyta Kizilov"]
+authors: ["Mykyta Kizilov"]
+license: "MIT"
 depends: [
   "ocaml" {>= "5.1" & < "6.0"}
   "dune" {>= "3.20"}
