@@ -539,6 +539,40 @@ class RepositoryTests(unittest.TestCase):
         for version in {**package["dependencies"], **package["devDependencies"]}.values():
             self.assertRegex(version, r"^\d+\.\d+\.\d+$")
 
+    def test_roadmap_has_prioritized_complete_steps_and_consistent_estimates(self):
+        def capture(pattern, text):
+            match = re.search(pattern, text)
+            if match is None:
+                raise AssertionError(f"Missing roadmap field: {pattern}")
+            return match.group(1)
+
+        roadmap = (ROOT / "ROADMAP.md").read_text()
+        headings = list(re.finditer(r"^## (\d+)\. .+$", roadmap, re.MULTILINE))
+        self.assertGreaterEqual(len(headings), 12)
+        self.assertEqual([int(h.group(1)) for h in headings], list(range(1, len(headings) + 1)))
+        total = 0
+        for index, heading in enumerate(headings):
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(roadmap)
+            section = roadmap[heading.end():end]
+            for field in ("Scope", "Rationale", "Dependencies", "Acceptance criteria", "Effort"):
+                self.assertRegex(section, rf"- \*\*{field}:\*\*\s+\S")
+            total += int(capture(r"\*\*Effort:\*\* (\d+) hours", section))
+            dependencies = capture(r"\*\*Dependencies:\*\*([^\n]+)", section)
+            for dependency in re.findall(r"\b\d+\b", dependencies):
+                self.assertTrue(0 < int(dependency) < int(heading.group(1)))
+        declared = int(capture(r"Total estimate: (\d+) engineer-hours", roadmap))
+        reserve = int(capture(r"\*\*(\d+) hours contingency", roadmap))
+        budget = int(capture(r"\*\*(\d+)-hour planning budget", roadmap))
+        self.assertEqual(total, declared)
+        self.assertEqual(declared + reserve, budget)
+        verification = (ROOT / "VERIFICATION.md").read_text()
+        for status in ("Implemented", "Verified", "Partial", "Unverified"):
+            self.assertIn(f"**{status}:**", verification)
+        agreement = (ROOT / "AGENTS.md").read_text()
+        self.assertNotRegex(agreement.lower(), r"orchestrat|numbered (turn|prompt)|\bturn \d+\b|next prompt|stage_complete")
+        for boundary in (".opencode/", "Do not push", "21900–21999", "never commit"):
+            self.assertIn(boundary, agreement)
+
     def test_release_digest_manifest_has_all_eight_assets(self):
         rows = (ROOT / "scripts" / "tool-checksums.sha256").read_text().splitlines()
         self.assertEqual(len(rows), 8)

@@ -7,6 +7,10 @@
   (source_tree playground)
   package.json
   package-lock.json
+  AGENTS.md
+  README.md
+  ROADMAP.md
+  VERIFICATION.md
   lib/optimize.ml
   lib/dune
   lib/grammar.messages

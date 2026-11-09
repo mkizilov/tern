@@ -8,6 +8,7 @@ written in OCaml; the browser playground runs that same compiler as JavaScript.
 - [Language reference](LANGUAGE.md) · [Compiler and runtime design](DESIGN.md)
 - [16 runnable examples](examples/README.md) · [Optimization measurements](OPTIMIZATIONS.md)
 - [Project boundaries and verification](AGENTS.md)
+- [Verification scope and current limits](VERIFICATION.md) · [Prioritized roadmap](ROADMAP.md)
 
 ## A short language tour
 
@@ -171,6 +172,13 @@ A modern browser with Wasm tail calls is required; Chromium is tested, Safari an
 Firefox are not verified here.
 
 ## Testing strategy
+
+Implemented does not mean exhaustively verified: the local native and Chromium
+paths are exercised, while other platforms/browser engines remain unverified.
+The collector is non-moving/conservative, compiled traps lack source spans, and
+publication metadata still fails opam lint. [VERIFICATION.md](VERIFICATION.md)
+records commands and evidence; [ROADMAP.md](ROADMAP.md) prioritizes remaining
+correctness, security, and release gaps before new features.
 
 ```sh
 scripts/check.sh
