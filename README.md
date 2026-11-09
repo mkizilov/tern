@@ -9,7 +9,7 @@ written in OCaml; the browser playground runs that same compiler as JavaScript.
 - [16 runnable examples](examples/README.md) · [Optimization measurements](OPTIMIZATIONS.md)
 - [Project boundaries and verification](AGENTS.md)
 - [Verification scope and current limits](VERIFICATION.md) · [Prioritized roadmap](ROADMAP.md)
-- [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [MIT license](LICENSE)
 
 ## A short language tour
 
@@ -210,9 +210,9 @@ npm run test:browser
 - **Infrastructure:** `python3 tests/test_project.py` checks local setup and
   fixture contracts offline. These static/mock checks do not replace native or
   browser execution.
-- **Distribution:** MIT and upstream notices are included in both native package
+- **Distribution:** The MIT license is included in both native package
   documentation and the static site's readable legal page; byte-for-byte tests
-  protect those texts. `python3 scripts/check-publication.py` checks the current
+  protect that text. `python3 scripts/check-publication.py` checks the current
   publishable tree and all Git history with the pinned local secret scanner.
 
 `scripts/check.sh` runs build, native tests, and formatting with two workers.
@@ -221,17 +221,7 @@ Browser tests use one worker and own their loopback server. The supplied
 browser after `npm ci`. Generated site, dependencies, browsers, caches, and test
 scratch are ignored; stop servers and clean scratch after verification.
 
-## License and publication status
+## License
 
 Project-owned code and documentation are under the [MIT License](LICENSE),
-copyright 2026 Mykyta Kizilov. Dependencies retain their own copyright, license,
-and linking-exception terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
-and the preserved texts in `licenses/`. The GitHub owner is
-[mkizilov](https://github.com/mkizilov). No project repository/issue URL is fabricated.
-
-Final local verification covers native build/tests/formatting, forced test replay,
-site/JavaScript/Chromium checks, dependency audit, setup replay with working DNS,
-clean-source package installation, and current-tree/full-history secret scanning.
-This is not a claim of untested platform coverage, signed artifacts, or completed
-remote publication. Exact commands, scanner pin, and remaining limits are in
-[VERIFICATION.md](VERIFICATION.md).
+copyright 2026 Mykyta Kizilov.
